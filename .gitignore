@@ -1,0 +1,16 @@
+backend/.env
+backend/venv/
+backend/__pycache__/
+backend/insightai.db
+backend/.pytest_cache/
+
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env.production
+frontend/lint.json
+frontend/lint.txt
+
+.DS_Store
+run-logs/
