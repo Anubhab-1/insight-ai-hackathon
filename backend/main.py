@@ -1,8 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Callable, cast
 from contextlib import asynccontextmanager
 import pandas as pd
 import sqlite3
@@ -10,12 +10,18 @@ import os
 import io
 import json
 import asyncio
+import concurrent.futures
 import re
 import random
+import time
 import traceback
 import html
 import plistlib
-from openai import APIStatusError, AsyncOpenAI, RateLimitError
+# openai >= 1.0 is required
+from openai import AsyncOpenAI, RateLimitError, APIStatusError
+# Use Any for ChatCompletion if type-checker is blind to openai.types
+ChatCompletion = Any 
+
 from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -43,13 +49,29 @@ def parse_cors_origins(raw_value: Optional[str]) -> List[str]:
         "http://127.0.0.1:3333",
     ]
 
+client: Optional[AsyncOpenAI] = None
+
+def _init_client() -> Optional[AsyncOpenAI]:
+    """Initialize the OpenAI client with environment configuration."""
+    api_key = os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY") or os.environ.get("XAI_API_KEY")
+    base_url = os.environ.get("LLM_BASE_URL") or "https://api.groq.com/openai/v1"
+    
+    if api_key:
+        return AsyncOpenAI(api_key=api_key, base_url=base_url)
+    return None
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    global client
+    if client is None:
+        client = _init_client()
     try:
         yield
     finally:
         if client is not None:
             await client.close()
+            client = None
 
 
 app = FastAPI(title="InsightAI Backend", lifespan=lifespan)
@@ -72,6 +94,7 @@ FORBIDDEN_SQL_PATTERN = re.compile(r"\b(insert|update|delete|drop|alter|create|r
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 NON_ALPHANUMERIC_PATTERN = re.compile(r"[^a-z0-9]+")
 BINARY_SIGNATURES = [b"bplist00", b"PK\x03\x04", b"\x89PNG", b"%PDF"]
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB max file size
 
 SQL_TEXT_TRANSLATION = str.maketrans(
     {
@@ -88,8 +111,8 @@ SQL_TEXT_TRANSLATION = str.maketrans(
     }
 )
 
-active_table = None
-active_schema = "No data loaded yet."
+active_table: Optional[str] = None
+active_schema: str = "No data loaded yet."
 
 
 def quote_identifier(identifier: str) -> str:
@@ -102,6 +125,10 @@ def get_db_connection():
 
 
 def replace_active_dataset(df: pd.DataFrame, table_name: str) -> None:
+    # Validate table name to prevent SQL injection
+    if not table_name or not table_name.replace('_', '').replace('-', '').isalnum():
+        raise ValueError("Invalid table name. Use only alphanumeric characters, underscores, and hyphens.")
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -119,9 +146,6 @@ def replace_active_dataset(df: pd.DataFrame, table_name: str) -> None:
 
 def update_schema_info():
     global active_schema, active_table
-
-def update_schema_info():
-    global active_schema, active_table
     if not os.path.exists(DB_NAME):
         active_schema = "No data loaded yet."
         return
@@ -136,7 +160,7 @@ def update_schema_info():
             return
             
         table_names = [t['name'] for t in tables]
-        if active_table not in table_names:
+        if active_table is None:
             active_schema = "No data loaded yet."
             return
             
@@ -153,6 +177,7 @@ update_schema_info()
 
 def preload_youtube_data():
     """Refresh the default demo dataset from disk on startup."""
+    global active_table
     csv_path = os.path.join(BASE_DIR, "youtube_data.csv")
     if not os.path.exists(csv_path):
         print("No youtube_data.csv found - skipping preload")
@@ -161,22 +186,33 @@ def preload_youtube_data():
     df = pd.read_csv(csv_path)
     df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(" ", "_")
     replace_active_dataset(df, "youtube_analytics")
+    active_table = "youtube_analytics"
     print(f"Synced demo dataset with {len(df)} rows into youtube_analytics")
     update_schema_info()
 
-# preload_youtube_data() # Disabled for clean hackathon entry
+preload_youtube_data() # Disabled for clean hackathon entry - uncomment for production
 
-LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY") or os.environ.get("XAI_API_KEY")
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.groq.com/openai/v1"
 LLM_MODEL = os.environ.get("LLM_MODEL") or "llama-3.3-70b-versatile"
 
-if LLM_API_KEY:
-    client = AsyncOpenAI(
-        api_key=LLM_API_KEY,
-        base_url=LLM_BASE_URL,
-    )
-else:
-    client = None
+# Initialize client at module load time
+client = _init_client()
+
+def _run_coro_in_thread(coro: Any) -> Any:
+    """Run an asyncio coroutine in a fresh event loop on a worker thread.
+
+    Used to safely call async LLM helpers from synchronous code that is
+    itself invoked inside a running event-loop (FastAPI / uvicorn).
+    Wrapping in a thread lets us call asyncio.run() from within FastAPI
+    without hitting 'This event loop is already running'.
+    """
+    def _runner() -> Any:
+        return asyncio.run(coro)
+
+    _typed_runner = cast(Callable[..., Any], _runner)
+    # Use a small pool to avoid blocking when multiple self-healing attempts happen
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        return pool.submit(_typed_runner).result()
+
 
 async def call_llm_with_retry(func, *args, **kwargs):
     """Retries an LLM call with exponential backoff and jitter."""
@@ -278,11 +314,15 @@ def get_active_columns() -> List[Dict[str, str]]:
     if not active_schema or "No data" in active_schema:
         return []
 
+    if not active_table:
+        return []
+
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(f"PRAGMA table_info({quote_identifier(active_table)})")
-        return [{"name": row["name"], "type": row["type"] or ""} for row in cursor.fetchall()]
+        results = [{"name": row["name"], "type": row["type"] or ""} for row in cursor.fetchall()]
+        return results
     finally:
         conn.close()
 
@@ -410,7 +450,7 @@ def generate_example_prompts(profile: Dict[str, Any]) -> List[str]:
         if prompt not in unique_prompts:
             unique_prompts.append(prompt)
 
-    return unique_prompts[:3]
+    return cast(List[str], unique_prompts[:3])
 
 
 def get_dataset_profile() -> Dict[str, Any]:
@@ -427,7 +467,16 @@ def get_dataset_profile() -> Dict[str, Any]:
     }
 
     if not active_schema or "No data" in active_schema:
-        return profile
+        # Try to recover by preloading default data
+        preload_youtube_data()
+        update_schema_info()
+        
+        # Update profile table name after recovery
+        profile["table"] = active_table
+        profile["schema"] = active_schema
+        
+        if not active_schema or "No data" in active_schema:
+            return profile
 
     columns = get_active_columns()
     numeric_columns, categorical_columns, date_columns = infer_column_groups(columns)
@@ -436,10 +485,14 @@ def get_dataset_profile() -> Dict[str, Any]:
     cursor = conn.cursor()
     try:
         try:
+            if active_table is None:
+                raise ValueError("No active table")
             cursor.execute(f"SELECT COUNT(*) AS row_count FROM {quote_identifier(active_table)}")
             row_count = cursor.fetchone()["row_count"]
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, ValueError):
             update_schema_info()
+            if active_table is None:
+                return profile
             profile["table"] = active_table
             profile["schema"] = active_schema
             cursor.execute(f"SELECT COUNT(*) AS row_count FROM {quote_identifier(active_table)}")
@@ -542,7 +595,7 @@ def extract_csv_from_webarchive(contents: bytes) -> Optional[bytes]:
 
 
 def looks_like_utf16_text(sample: bytes) -> bool:
-    if sample.startswith((b"\xff\xfe", b"\xfe\xff")):
+    if cast(Any, sample)[0:2] in (b"\xff\xfe", b"\xfe\xff"):
         return True
 
     if b"\x00" not in sample:
@@ -755,8 +808,10 @@ def classify_sql_execution_error(error_message: str) -> str:
 
 def classify_llm_error(error: Exception) -> Tuple[int, str]:
     if isinstance(error, HTTPException):
-        detail = error.detail if isinstance(error.detail, str) else "Request failed."
-        return error.status_code, detail
+        # Cast to HTTPException to satisfy type checker
+        http_err = cast(HTTPException, error)
+        detail = http_err.detail if isinstance(http_err.detail, str) else "Request failed."
+        return http_err.status_code, detail
 
     error_text = str(error)
     lowered = error_text.lower()
@@ -1087,8 +1142,20 @@ def build_local_follow_up_questions(primary_metric: str, primary_dimension: Opti
     return unique_prompts[:3]
 
 
-def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
     dataset_profile = get_dataset_profile()
+    if active_table is None:
+        return {
+            "dashboard_title": "No dataset loaded",
+            "dashboard_subtitle": "Please upload a CSV file to get started.",
+            "confidence": "low",
+            "cannot_answer": True,
+            "cannot_answer_reason": "No active dataset table found.",
+            "kpis": [],
+            "widgets": [],
+            "follow_up_questions": [],
+        }
+
     numeric_columns = dataset_profile.get("numeric_columns", [])
     categorical_columns = dataset_profile.get("categorical_columns", [])
     date_columns = dataset_profile.get("date_columns", [])
@@ -1272,8 +1339,8 @@ def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str, str]
         "confidence": "medium",
         "cannot_answer": False,
         "cannot_answer_reason": "",
-        "kpis": kpis[:4],
-        "widgets": widgets[:4],
+        "kpis": cast(Any, kpis)[:4],
+        "widgets": cast(Any, widgets)[:4],
         "follow_up_questions": build_local_follow_up_questions(primary_metric, primary_dimension, date_column),
     }
 
@@ -1351,18 +1418,19 @@ def build_local_dashboard_summary(
             "Use a follow-up filter to compare how the picture changes for a narrower slice of the data.",
         ]
 
-    follow_up_questions = plan.get("follow_up_questions", [])[:3] or get_dataset_profile().get("example_prompts", [])
+    raw_prompts = plan.get("follow_up_questions", [])
+    follow_up_questions = cast(Any, raw_prompts)[:3] or cast(Any, get_dataset_profile()).get("example_prompts", [])
     return {
-        "executive_summary": " ".join(summary_parts[:3]),
-        "recommendations": recommendations[:3],
+        "executive_summary": " ".join(cast(Any, summary_parts)[:3]),
+        "recommendations": cast(Any, recommendations)[:3],
         "widget_insights": widget_insights,
         "kpi_insights": kpi_insights,
         "follow_up_questions": follow_up_questions,
     }
 
 
-def build_local_dashboard_response(query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
-    plan = build_local_dashboard_plan(query, history)
+async def build_local_dashboard_response(query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    plan = await build_local_dashboard_plan(query, history)
     if plan.get("cannot_answer"):
         return {
             "dashboard_title": plan.get("dashboard_title") or query,
@@ -1377,7 +1445,7 @@ def build_local_dashboard_response(query: str, history: Optional[List[Dict[str, 
             "cannot_answer_reason": plan.get("cannot_answer_reason") or "The local fallback could not build a dashboard for this dataset.",
         }
 
-    kpis, widgets, errors = execute_dashboard_plan(plan)
+    kpis, widgets, errors = await execute_dashboard_plan(plan)
     if not kpis and not widgets:
         return {
             "dashboard_title": plan.get("dashboard_title") or query,
@@ -1425,6 +1493,8 @@ def should_use_local_dashboard_fallback(error: Exception) -> bool:
 
 
 async def generate_dashboard_plan(query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    if client is None:
+        raise HTTPException(status_code=500, detail="LLM client is not initialized.")
     dataset_profile = get_dataset_profile()
     history_context = build_history_context(history)
 
@@ -1482,14 +1552,17 @@ Rules:
             {"role": "user", "content": planner_prompt + f"\nUser request: {query}"},
         ],
     )
+    typed_response = cast(ChatCompletion, response)
 
-    return parse_json_payload(response.choices[0].message.content)
+    return parse_json_payload(typed_response.choices[0].message.content)
 
 
-def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]]:
+async def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]]:
     kpi_results: List[Dict[str, Any]] = []
     widget_results: List[Dict[str, Any]] = []
     errors: List[str] = []
+    
+    loop = asyncio.get_event_loop()
 
     for index, metric_plan in enumerate(plan.get("kpis", [])[:4]):
         title = str(metric_plan.get("title") or f"KPI {index + 1}")
@@ -1501,7 +1574,8 @@ def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
         last_error = ""
         for attempt in range(3):
             try:
-                safe_sql, rows = execute_select_query(metric_plan.get("sql", ""))
+                # Offload synchronous SQL to thread pool
+                safe_sql, rows = await loop.run_in_executor(None, execute_select_query, metric_plan.get("sql", ""))
                 key, raw_value = extract_metric_value(rows)
                 if raw_value is not None:
                     context_bits = []
@@ -1528,14 +1602,14 @@ def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
                     print(f"Self-healing KPI '{title}' (attempt {attempt + 1}). Error: {last_error}")
                     correction_prompt = f"Your previous SQL query for the KPI '{title}' failed with this SQLite error: {last_error}.\nThe schema is: {get_dataset_profile()['schema']}\nRewrite ONLY the raw SQL query to fix this. No explanation."
                     try:
-                        res = asyncio.run(call_llm_with_retry(
+                        res = cast(ChatCompletion, await call_llm_with_retry(
                             client.chat.completions.create,
                             model=LLM_MODEL,
-                            messages=[{"role": "user", "content": correction_prompt}]
+                            messages=[{"role": "user", "content": correction_prompt}],
                         ))
                         metric_plan["sql"] = sanitize_sql(res.choices[0].message.content)
                     except Exception:
-                        break # Give up on LLM failure
+                        break  # Give up on LLM failure
                 else:
                     break
             except Exception as exc:
@@ -1553,7 +1627,8 @@ def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
         last_error = ""
         for attempt in range(3):
             try:
-                safe_sql, rows = execute_select_query(widget_plan.get("sql", ""))
+                # Offload synchronous SQL to thread pool
+                safe_sql, rows = await loop.run_in_executor(None, execute_select_query, widget_plan.get("sql", ""))
                 if not rows:
                     success = True
                     break
@@ -1588,14 +1663,14 @@ def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], 
                     print(f"Self-healing Widget '{title}' (attempt {attempt + 1}). Error: {last_error}")
                     correction_prompt = f"Your previous SQL query for the widget '{title}' failed with this SQLite error: {last_error}.\nThe schema is: {get_dataset_profile()['schema']}\nRewrite ONLY the raw SQL query to fix this. No explanation."
                     try:
-                        res = asyncio.run(call_llm_with_retry(
+                        res = cast(ChatCompletion, await call_llm_with_retry(
                             client.chat.completions.create,
                             model=LLM_MODEL,
-                            messages=[{"role": "user", "content": correction_prompt}]
+                            messages=[{"role": "user", "content": correction_prompt}],
                         ))
                         widget_plan["sql"] = sanitize_sql(res.choices[0].message.content)
                     except Exception:
-                        break # Give up on LLM failure
+                        break  # Give up on LLM failure
                 else:
                     break
             except Exception as exc:
@@ -1615,6 +1690,8 @@ async def generate_dashboard_summary(
     widgets: List[Dict[str, Any]],
     history: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
+    if client is None:
+        raise HTTPException(status_code=500, detail="LLM client is not initialized.")
     summary_prompt = f"""
 Write an executive-ready summary for a generated dashboard.
 
@@ -1722,7 +1799,7 @@ async def process_dashboard_query(query: str, history: Optional[List[Dict[str, s
             plan = await generate_dashboard_plan(query, history)
         except Exception as exc:
             if should_use_local_dashboard_fallback(exc):
-                return build_local_dashboard_response(query, history)
+                return await build_local_dashboard_response(query, history)
             raise
 
         if plan.get("cannot_answer"):
@@ -1733,13 +1810,14 @@ async def process_dashboard_query(query: str, history: Optional[List[Dict[str, s
                 "kpis": [],
                 "widgets": [],
                 "recommendations": [],
-                "follow_up_questions": plan.get("follow_up_questions", [])[:3] or get_dataset_profile().get("example_prompts", []),
+                "follow_up_questions": cast(Any, plan.get("follow_up_questions", []))[:3] or cast(Any, get_dataset_profile().get("example_prompts", [])),
                 "confidence": plan.get("confidence", "low"),
                 "cannot_answer": True,
                 "cannot_answer_reason": plan.get("cannot_answer_reason") or "The requested dashboard cannot be generated from the available data.",
             }
 
-        kpis, widgets, errors = execute_dashboard_plan(plan)
+        # Execute planned SQL queries safely (async)
+        kpis, widgets, errors = await execute_dashboard_plan(plan)
         if not kpis and not widgets:
             if errors:
                 raise ValueError("; ".join(errors))
@@ -1780,11 +1858,13 @@ async def process_dashboard_query(query: str, history: Optional[List[Dict[str, s
         }
     except Exception as exc:
         if should_use_local_dashboard_fallback(exc):
-            return build_local_dashboard_response(query, history)
+            return await build_local_dashboard_response(query, history)
         legacy_response = await process_analytic_query(query, active_schema, client, history)
         return build_fallback_dashboard(query, legacy_response)
 
-async def process_analytic_query(query: str, schema: str, openai_client: AsyncOpenAI, history: List[Dict[str, str]] = None):
+async def process_analytic_query(query: str, schema: str, openai_client: Optional[AsyncOpenAI], history: Optional[List[Dict[str, str]]] = None):
+    if openai_client is None:
+        raise HTTPException(status_code=500, detail="LLM client is not initialized. Please set LLM_API_KEY in the backend .env file.")
     # Pass 1: generate SQL
     history_context = build_history_context(history)
 
@@ -1865,6 +1945,7 @@ Output MUST follow the strict JSON formatting rules provided.
 def health():
     has_data = active_schema and "No data" not in active_schema
     dataset_profile = get_dataset_profile()
+    is_demo_mode = client is None
     return {
         "status": "ok",
         "has_data": has_data,
@@ -1873,6 +1954,7 @@ def health():
         "columns": dataset_profile.get("columns", []),
         "schema": dataset_profile.get("schema", ""),
         "example_prompts": dataset_profile.get("example_prompts", []),
+        "demo_mode": is_demo_mode,
     }
 
 @app.get("/api/insights")
@@ -1932,8 +2014,8 @@ async def export_widget_csv(request: ExportWidgetRequest):
     filename = f"{slugify_filename(request.title or 'widget_export')}.csv"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
 
-    return StreamingResponse(
-        io.BytesIO(csv_payload),
+    return Response(
+        content=csv_payload,
         media_type="text/csv; charset=utf-8",
         headers=headers,
     )
@@ -1945,6 +2027,14 @@ async def upload_csv(file: UploadFile = File(...)):
     
     try:
         contents = await file.read()
+        
+        # Validate file size
+        if len(contents) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB.")
+        
+        if len(contents) == 0:
+            raise HTTPException(status_code=400, detail="The uploaded CSV file is empty.")
+        
         contents = normalize_uploaded_csv_bytes(contents)
         validate_uploaded_csv_bytes(contents)
         df = read_uploaded_csv(contents)
@@ -1987,6 +2077,9 @@ async def upload_csv(file: UploadFile = File(...)):
 
 @app.post("/api/query", response_model=QueryResponse)
 async def query_data(request: QueryRequest):
+    if not request.query or not request.query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty. Please provide a question.")
+
     if not active_schema or "No data" in active_schema:
         raise HTTPException(status_code=400, detail="I don't have data on that. Please upload a CSV first.")
         
@@ -1996,18 +2089,18 @@ async def query_data(request: QueryRequest):
     try:
         res = await process_dashboard_query(request.query, request.history)
 
-        return QueryResponse(
-            dashboard_title=res.get("dashboard_title", request.query),
-            dashboard_subtitle=res.get("dashboard_subtitle"),
-            executive_summary=res.get("executive_summary", ""),
-            kpis=res.get("kpis", []),
-            widgets=res.get("widgets", []),
-            recommendations=res.get("recommendations", []),
-            follow_up_questions=res.get("follow_up_questions", []),
-            confidence=res.get("confidence"),
-            cannot_answer=res.get("cannot_answer", False),
-            cannot_answer_reason=res.get("cannot_answer_reason")
-        )
+        return {
+            "dashboard_title": str(res.get("dashboard_title", request.query)),
+            "dashboard_subtitle": res.get("dashboard_subtitle"),
+            "executive_summary": str(res.get("executive_summary", "")),
+            "kpis": res.get("kpis", []),
+            "widgets": res.get("widgets", []),
+            "recommendations": res.get("recommendations", []),
+            "follow_up_questions": res.get("follow_up_questions", []),
+            "confidence": res.get("confidence"),
+            "cannot_answer": res.get("cannot_answer", False),
+            "cannot_answer_reason": res.get("cannot_answer_reason")
+        }
     except Exception as e:
         print(f"Error: {e}")
         status_code, detail = classify_llm_error(e)

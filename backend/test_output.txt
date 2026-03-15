@@ -1,0 +1,33 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.8.10, pytest-8.3.5, pluggy-1.5.0 -- C:\Users\anubhab samanta\.gemini\antigravity\scratch\InsightAI\backend\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\anubhab samanta\.gemini\antigravity\scratch\InsightAI\backend
+configfile: pytest.ini
+plugins: anyio-4.5.2, asyncio-0.24.0
+asyncio: mode=strict, default_loop_scope=function
+collecting ... collected 1 item
+
+test_dashboard_flow.py::test_process_dashboard_query_uses_local_fallback_when_rate_limited FAILED
+
+================================== FAILURES ===================================
+_____ test_process_dashboard_query_uses_local_fallback_when_rate_limited ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002068A0DC8B0>
+
+    def test_process_dashboard_query_uses_local_fallback_when_rate_limited(monkeypatch):
+        monkeypatch.setattr(main, "generate_dashboard_plan", fake_rate_limited_dashboard_plan)
+    
+        response = asyncio.run(
+            main.process_dashboard_query(
+                "Show the trend of views over time and break it down by region.",
+                [],
+            )
+        )
+    
+>       assert response["cannot_answer"] is False
+E       assert True is False
+
+test_dashboard_flow.py:98: AssertionError
+=========================== short test summary info ===========================
+FAILED test_dashboard_flow.py::test_process_dashboard_query_uses_local_fallback_when_rate_limited
+============================== 1 failed in 1.81s ==============================

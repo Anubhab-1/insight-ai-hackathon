@@ -1,6 +1,16 @@
 import asyncio
 
+import pytest
 import main
+
+
+@pytest.fixture(autouse=False)
+def with_demo_dataset():
+    """Preload the YouTube demo dataset so local dashboard logic has data to work with."""
+    main.preload_youtube_data()
+    yield
+    # Leave the dataset in place — no teardown needed for tests
+
 
 
 async def fake_generate_dashboard_plan(query, history=None):
@@ -85,7 +95,7 @@ async def fake_rate_limited_dashboard_plan(query, history=None):
     raise RuntimeError("Rate limit reached for the provider")
 
 
-def test_process_dashboard_query_uses_local_fallback_when_rate_limited(monkeypatch):
+def test_process_dashboard_query_uses_local_fallback_when_rate_limited(monkeypatch, with_demo_dataset):
     monkeypatch.setattr(main, "generate_dashboard_plan", fake_rate_limited_dashboard_plan)
 
     response = asyncio.run(
