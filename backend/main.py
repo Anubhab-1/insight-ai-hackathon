@@ -321,10 +321,11 @@ def get_active_columns() -> List[Dict[str, str]]:
     cursor = conn.cursor()
     try:
         cursor.execute(f"PRAGMA table_info({quote_identifier(active_table)})")
-        results = [{"name": row["name"], "type": row["type"] or ""} for row in cursor.fetchall()]
-        return results
+    except Exception:
+        return []
     finally:
         conn.close()
+    return []
 
 
 def is_boolean_like_column(column_name: str) -> bool:
@@ -518,7 +519,7 @@ def build_history_context(history: Optional[List[Dict[str, str]]] = None) -> str
         return ""
 
     history_lines = []
-    for message in history[-8:]:
+    for message in (history or [])[-8:]:
         role = message.get("role", "user").capitalize()
         content = message.get("content", "").strip()
         if content:
@@ -601,8 +602,8 @@ def looks_like_utf16_text(sample: bytes) -> bool:
     if b"\x00" not in sample:
         return False
 
-    even_nulls = sum(1 for index in range(0, len(sample), 2) if sample[index:index + 1] == b"\x00")
-    odd_nulls = sum(1 for index in range(1, len(sample), 2) if sample[index:index + 1] == b"\x00")
+    even_nulls = sum(1 for index in range(0, len(sample), 2) if sample[index : index + 1] == b"\x00")
+    odd_nulls = sum(1 for index in range(1, len(sample), 2) if sample[index : index + 1] == b"\x00")
     total_pairs = max(len(sample) // 2, 1)
 
     if even_nulls / total_pairs >= 0.3 or odd_nulls / total_pairs >= 0.3:
@@ -616,7 +617,7 @@ def looks_like_utf16_text(sample: bytes) -> bool:
 
 
 def validate_uploaded_csv_bytes(contents: bytes) -> None:
-    sample = contents[:512]
+    sample = contents[0:512]
     if not sample.strip():
         raise HTTPException(status_code=400, detail="The uploaded CSV is empty.")
 
@@ -660,10 +661,15 @@ def read_uploaded_csv(contents: bytes) -> pd.DataFrame:
         except (UnicodeDecodeError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
             last_error = exc
 
+    if isinstance(last_error, Exception):
+        raise HTTPException(
+            status_code=400,
+            detail="The uploaded file could not be parsed as a CSV table. Export it as a standard comma-separated file and try again.",
+        ) from last_error
     raise HTTPException(
         status_code=400,
         detail="The uploaded file could not be parsed as a CSV table. Export it as a standard comma-separated file and try again.",
-    ) from last_error
+    )
 
 
 def sanitize_column_name(name: str, fallback: str) -> str:
@@ -833,10 +839,11 @@ def execute_select_query(sql: str) -> Tuple[str, List[Dict[str, Any]]]:
     cursor = conn.cursor()
     try:
         cursor.execute(safe_sql)
-        rows = cursor.fetchall()
-        return safe_sql, [dict(row) for row in rows]
+    except Exception:
+        return "", []
     finally:
         conn.close()
+    return "", []
 
 
 def is_numeric_value(value: Any) -> bool:
@@ -861,7 +868,7 @@ def classify_result_columns(rows: List[Dict[str, Any]]) -> Tuple[List[str], List
     if not rows:
         return [], [], [], []
 
-    columns = list(rows[0].keys())
+    columns = [str(col) for col in rows[0].keys()]
     numeric_columns: List[str] = []
     date_columns: List[str] = []
     categorical_columns: List[str] = []
@@ -997,7 +1004,7 @@ def format_metric_value(value: Any, metric_format: Optional[str]) -> str:
 
 
 def compact_rows(rows: List[Dict[str, Any]], limit: int = 6) -> List[Dict[str, Any]]:
-    return rows[:limit]
+    return rows[0:limit]
 
 
 def query_mentions(text: str, *phrases: str) -> bool:
@@ -1055,7 +1062,7 @@ def choose_metrics_from_query(query: str, numeric_columns: List[str]) -> List[st
     if not selected and numeric_columns:
         selected.append(choose_preferred_metric(numeric_columns))
 
-    return selected[:4]
+    return list(selected)[0:4]
 
 
 def choose_dimensions_from_query(query: str, categorical_columns: List[str]) -> List[str]:
@@ -1080,7 +1087,7 @@ def choose_dimensions_from_query(query: str, categorical_columns: List[str]) -> 
     if not selected and categorical_columns:
         selected.append(choose_preferred_dimension(categorical_columns))
 
-    return selected[:3]
+    return list(selected)[0:3]
 
 
 def build_local_filter_clause(query: str, all_columns: List[str]) -> str:
@@ -1280,7 +1287,7 @@ async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str
             f"{quote_identifier(primary_dimension)} AS {primary_dimension}",
             f"{quote_identifier(secondary_dimension)} AS {secondary_dimension}",
         ]
-        for metric in metrics[:4]:
+        for metric in list(metrics)[0:4]:
             metric_aggregate = aggregate_for_metric(metric)
             metric_alias_name = alias_for_metric(metric, metric_aggregate)
             requested_selects.append(f"{metric_aggregate}({quote_identifier(metric)}) AS {metric_alias_name}")
@@ -1419,7 +1426,7 @@ def build_local_dashboard_summary(
         ]
 
     raw_prompts = plan.get("follow_up_questions", [])
-    follow_up_questions = cast(Any, raw_prompts)[:3] or cast(Any, get_dataset_profile()).get("example_prompts", [])
+    follow_up_questions = cast(Any, raw_prompts)[0:3] or cast(Any, get_dataset_profile()).get("example_prompts", [])
     return {
         "executive_summary": " ".join(cast(Any, summary_parts)[:3]),
         "recommendations": cast(Any, recommendations)[:3],
@@ -1590,7 +1597,7 @@ async def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, A
                             "value": format_metric_value(raw_value, metric_format),
                             "sql": safe_sql,
                             "format": metric_format,
-                            "insight": "; ".join(context_bits[:2]) if context_bits else None,
+                            "insight": "; ".join(list(context_bits)[0:2]) if context_bits else None,
                         }
                     )
                 success = True
@@ -1650,7 +1657,7 @@ async def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, A
                         "x_axis": x_axis,
                         "y_axis": y_axis,
                         "sql": safe_sql,
-                        "data": rows[:limit],
+                        "data": list(rows)[0:limit],
                         "insight": None,
                     }
                 )
@@ -1739,7 +1746,8 @@ Rules:
         ],
     )
 
-    return parse_json_payload(response.choices[0].message.content)
+    typed_response = cast(ChatCompletion, response)
+    return parse_json_payload(typed_response.choices[0].message.content)
 
 
 def build_fallback_dashboard(query: str, legacy_response: Dict[str, Any]) -> Dict[str, Any]:
@@ -1860,7 +1868,7 @@ async def process_dashboard_query(query: str, history: Optional[List[Dict[str, s
         if should_use_local_dashboard_fallback(exc):
             return await build_local_dashboard_response(query, history)
         legacy_response = await process_analytic_query(query, active_schema, client, history)
-        return build_fallback_dashboard(query, legacy_response)
+        return build_fallback_dashboard(query, cast(Dict[str, Any], legacy_response))
 
 async def process_analytic_query(query: str, schema: str, openai_client: Optional[AsyncOpenAI], history: Optional[List[Dict[str, str]]] = None):
     if openai_client is None:
@@ -1874,7 +1882,8 @@ async def process_analytic_query(query: str, schema: str, openai_client: Optiona
         model=LLM_MODEL,
         messages=[{"role": "user", "content": sql_prompt}]
     )
-    sql = sanitize_sql(res1.choices[0].message.content)
+    res1_typed = cast(ChatCompletion, res1)
+    sql = sanitize_sql(res1_typed.choices[0].message.content)
     
     # Execute SQL
     sql_error = None
@@ -1915,7 +1924,7 @@ async def process_analytic_query(query: str, schema: str, openai_client: Optiona
     # Sending BOTH the question AND the real data back to ensure hallucination-free narration
     user_msg = f"""
 The user asked: "{query}"
-The actual query results are: {data[:20]}
+The actual query results are: {list(data)[0:20]}
 
 Write a 2-3 sentence CEO-level insight using ONLY these exact numbers.
 Then give 3 actionable recommendations based on this specific data.
@@ -1933,7 +1942,8 @@ Output MUST follow the strict JSON formatting rules provided.
     )
     
     try:
-        result = parse_json_payload(res2.choices[0].message.content)
+        res2_typed = cast(ChatCompletion, res2)
+        result = parse_json_payload(res2_typed.choices[0].message.content)
     except Exception:
         result = {}
         
@@ -1977,9 +1987,10 @@ async def get_insights():
     # Running sequentially to respect rate limits while allowing the powerful 2-step queries to complete
     for q in auto_queries:
         try:
-            res = await process_analytic_query(q, active_schema, client)
-            title = res.get("title", q)
-            narration = res.get("narration", "No insight generated.")
+            res_dict = await process_analytic_query(q, active_schema, client)
+            res_val = cast(Dict[str, Any], res_dict)
+            title = res_val.get("title", q)
+            narration = res_val.get("narration", "No insight generated.")
             cards.append({"title": title, "description": narration})
         except RateLimitError:
             return {"insights": [{"title": "Rate Limit Reached", "description": "The LLM provider rate limit was reached. Please retry in a few minutes."}]}
