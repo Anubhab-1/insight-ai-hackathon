@@ -190,7 +190,7 @@ def preload_youtube_data():
     print(f"Synced demo dataset with {len(df)} rows into youtube_analytics")
     update_schema_info()
 
-preload_youtube_data() # Disabled for clean hackathon entry - uncomment for production
+# preload_youtube_data() # Disabled for clean startup in Lumina rebranding
 
 LLM_MODEL = os.environ.get("LLM_MODEL") or "llama-3.3-70b-versatile"
 
@@ -321,6 +321,7 @@ def get_active_columns() -> List[Dict[str, str]]:
     cursor = conn.cursor()
     try:
         cursor.execute(f"PRAGMA table_info({quote_identifier(active_table)})")
+        return [dict(row) for row in cursor.fetchall()]
     except Exception:
         return []
     finally:
@@ -468,16 +469,7 @@ def get_dataset_profile() -> Dict[str, Any]:
     }
 
     if not active_schema or "No data" in active_schema:
-        # Try to recover by preloading default data
-        preload_youtube_data()
-        update_schema_info()
-        
-        # Update profile table name after recovery
-        profile["table"] = active_table
-        profile["schema"] = active_schema
-        
-        if not active_schema or "No data" in active_schema:
-            return profile
+        return profile
 
     columns = get_active_columns()
     numeric_columns, categorical_columns, date_columns = infer_column_groups(columns)
@@ -519,7 +511,7 @@ def build_history_context(history: Optional[List[Dict[str, str]]] = None) -> str
         return ""
 
     history_lines = []
-    for message in (history or [])[-8:]:
+    for message in cast(Any, history or [])[-8:]:
         role = message.get("role", "user").capitalize()
         content = message.get("content", "").strip()
         if content:
@@ -839,11 +831,13 @@ def execute_select_query(sql: str) -> Tuple[str, List[Dict[str, Any]]]:
     cursor = conn.cursor()
     try:
         cursor.execute(safe_sql)
-    except Exception:
-        return "", []
+        results = [dict(row) for row in cursor.fetchall()]
+        return safe_sql, results
+    except Exception as e:
+        print(f"SQL Execution Error: {e}")
+        return safe_sql, []
     finally:
         conn.close()
-    return "", []
 
 
 def is_numeric_value(value: Any) -> bool:
@@ -1004,7 +998,7 @@ def format_metric_value(value: Any, metric_format: Optional[str]) -> str:
 
 
 def compact_rows(rows: List[Dict[str, Any]], limit: int = 6) -> List[Dict[str, Any]]:
-    return rows[0:limit]
+    return rows[:limit]
 
 
 def query_mentions(text: str, *phrases: str) -> bool:
@@ -1071,7 +1065,7 @@ def choose_dimensions_from_query(query: str, categorical_columns: List[str]) -> 
         ("region", ["region", "market", "country"]),
         ("category", ["category", "categories", "content type"]),
         ("language", ["language", "languages"]),
-        ("ads_enabled", ["ads enabled", "ads-enabled", "with ads", "without ads", "ads only"]),
+        ("ads_enabled", ["ads enabled", "ads-enabled", "with ads", "ads only"]),
     ]
 
     selected: List[str] = []
@@ -1220,7 +1214,7 @@ async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str
             }
         )
 
-    for extra_metric in metrics[1:3]:
+    for extra_metric in cast(Any, metrics)[1:3]:
         extra_aggregate = aggregate_for_metric(extra_metric)
         extra_metric_sql = quote_identifier(extra_metric)
         kpis.append(
@@ -1232,7 +1226,7 @@ async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str
         )
 
     if has_trend and date_column:
-        time_bucket_sql, time_alias = build_time_bucket_expression(date_column)
+        dimension_sql, time_alias = build_time_bucket_expression(cast(str, date_column))
         widgets.append(
             {
                 "id": "metric_trend",
@@ -1287,7 +1281,7 @@ async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str
             f"{quote_identifier(primary_dimension)} AS {primary_dimension}",
             f"{quote_identifier(secondary_dimension)} AS {secondary_dimension}",
         ]
-        for metric in list(metrics)[0:4]:
+        for metric in cast(Any, list(metrics))[:4]:
             metric_aggregate = aggregate_for_metric(metric)
             metric_alias_name = alias_for_metric(metric, metric_aggregate)
             requested_selects.append(f"{metric_aggregate}({quote_identifier(metric)}) AS {metric_alias_name}")
@@ -1425,11 +1419,11 @@ def build_local_dashboard_summary(
             "Use a follow-up filter to compare how the picture changes for a narrower slice of the data.",
         ]
 
-    raw_prompts = plan.get("follow_up_questions", [])
-    follow_up_questions = cast(Any, raw_prompts)[0:3] or cast(Any, get_dataset_profile()).get("example_prompts", [])
+    raw_prompts = cast(List[str], plan.get("follow_up_questions", []))
+    follow_up_questions = raw_prompts[:3] or cast(Any, get_dataset_profile()).get("example_prompts", [])
     return {
-        "executive_summary": " ".join(cast(Any, summary_parts)[:3]),
-        "recommendations": cast(Any, recommendations)[:3],
+        "executive_summary": " ".join(cast(List[str], summary_parts)[:3]),
+        "recommendations": cast(List[str], recommendations)[:3],
         "widget_insights": widget_insights,
         "kpi_insights": kpi_insights,
         "follow_up_questions": follow_up_questions,
@@ -1485,7 +1479,7 @@ async def build_local_dashboard_response(query: str, history: Optional[List[Dict
         "kpis": kpis,
         "widgets": widgets,
         "recommendations": summary.get("recommendations", [])[:3],
-        "follow_up_questions": summary.get("follow_up_questions", [])[:3] or plan.get("follow_up_questions", [])[:3],
+        "follow_up_questions": cast(List[str], summary.get("follow_up_questions", []))[:3] or cast(List[str], plan.get("follow_up_questions", []))[:3],
         "confidence": plan.get("confidence", "medium"),
         "cannot_answer": False,
         "cannot_answer_reason": None,
@@ -1571,7 +1565,7 @@ async def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, A
     
     loop = asyncio.get_event_loop()
 
-    for index, metric_plan in enumerate(plan.get("kpis", [])[:4]):
+    for index, metric_plan in enumerate(cast(Any, plan.get("kpis", []))[:4]):
         title = str(metric_plan.get("title") or f"KPI {index + 1}")
         metric_format = str(metric_plan.get("format") or "number").lower()
         if metric_format not in VALID_METRIC_FORMATS:
@@ -1597,7 +1591,7 @@ async def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, A
                             "value": format_metric_value(raw_value, metric_format),
                             "sql": safe_sql,
                             "format": metric_format,
-                            "insight": "; ".join(list(context_bits)[0:2]) if context_bits else None,
+                            "insight": "; ".join(cast(Any, list(context_bits))[:2]) if context_bits else None,
                         }
                     )
                 success = True
@@ -1953,19 +1947,23 @@ Output MUST follow the strict JSON formatting rules provided.
 
 @app.get("/api/health")
 def health():
-    has_data = active_schema and "No data" not in active_schema
-    dataset_profile = get_dataset_profile()
-    is_demo_mode = client is None
-    return {
-        "status": "ok",
-        "has_data": has_data,
-        "table": active_table,
-        "row_count": dataset_profile.get("row_count", 0),
-        "columns": dataset_profile.get("columns", []),
-        "schema": dataset_profile.get("schema", ""),
-        "example_prompts": dataset_profile.get("example_prompts", []),
-        "demo_mode": is_demo_mode,
-    }
+    try:
+        has_data = active_schema and "No data" not in active_schema
+        dataset_profile = get_dataset_profile()
+        is_demo_mode = client is None
+        return {
+            "status": "ok",
+            "has_data": has_data,
+            "table": active_table,
+            "row_count": dataset_profile.get("row_count", 0),
+            "columns": dataset_profile.get("columns", []),
+            "schema": dataset_profile.get("schema", ""),
+            "example_prompts": dataset_profile.get("example_prompts", []),
+            "demo_mode": is_demo_mode,
+        }
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/insights")
 async def get_insights():
@@ -2003,11 +2001,16 @@ async def get_insights():
 
 @app.get("/api/reset")
 async def reset_dataset():
-    global active_table
-    preload_youtube_data()
-    active_table = "youtube_analytics"
+    global active_table, active_schema
+    active_table = None
+    if os.path.exists(DB_NAME):
+        try:
+            os.remove(DB_NAME)
+        except:
+            pass
+    active_schema = "No data loaded yet."
     update_schema_info()
-    return {"message": "Reset to default dataset", "table": active_table}
+    return {"message": "System reset to clean Lumina state", "table": None}
 
 @app.post("/api/export/widget-csv")
 async def export_widget_csv(request: ExportWidgetRequest):
