@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: lumina-api
+    env: python
+    region: ohio # or oregon, frankfurt, etc.
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0 # Or whichever version matches your environment
+      - key: LLM_API_KEY
+        sync: false # You will set this manually in the Render dashboard
+      - key: LLM_MODEL
+        value: "llama-3.3-70b-versatile" # Default model
+      - key: API_CORS_ORIGINS
+        sync: false # Set this to your live Vercel URL later
