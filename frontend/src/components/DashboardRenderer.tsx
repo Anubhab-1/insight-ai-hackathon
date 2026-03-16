@@ -339,9 +339,16 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
             case 'bar':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: chartData.length > 6 ? 40 : 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-                            <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis} />
+                            <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis}
+                                angle={chartData.length > 6 ? -35 : 0}
+                                textAnchor={chartData.length > 6 ? "end" : "middle"}
+                                interval={0}
+                                tickFormatter={(v) => {
+                                    const s = String(v);
+                                    return chartData.length > 8 ? s.slice(0, 10) : s;
+                                }} />
                             <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
                             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(139,92,246,0.03)', rx: 8 }} />
                             <Legend content={renderLegend} />

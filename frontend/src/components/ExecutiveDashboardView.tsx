@@ -160,6 +160,14 @@ export default function ExecutiveDashboardView({
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
                 {item.response.widgets.map((w, idx) => {
                     const isWide = ["line", "area", "multi_line", "treemap", "table"].includes(w.chart_type);
+                    // Adaptive chart height based on type and data rows
+                    const chartHeight = (() => {
+                        if (w.chart_type === "table") return Math.min(80 + (w.data?.length ?? 10) * 42, 560);
+                        if (w.chart_type === "pie" || w.chart_type === "treemap") return 320;
+                        if (["line", "area", "multi_line"].includes(w.chart_type)) return 380;
+                        if (w.chart_type === "stacked_bar" || w.chart_type === "bar") return Math.min(300 + (w.data?.length ?? 8) * 14, 420);
+                        return 360;
+                    })();
                     return (
                         <motion.article key={w.id} variants={itemVariants}
                             className={`nv-card nv-card-hover print-card flex flex-col rounded-[2.5rem] overflow-hidden ${isWide ? "xl:col-span-2" : "xl:col-span-1"}`}>
@@ -187,7 +195,7 @@ export default function ExecutiveDashboardView({
                             </div>
 
                             <div className="flex-1 p-8">
-                                <div className="h-[360px] w-full">
+                                <div style={{ height: `${chartHeight}px` }} className="w-full">
                                     <DashboardRenderer data={w.data} config={widgetConfig(w)} />
                                 </div>
 

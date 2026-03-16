@@ -1,0 +1,25 @@
+month,region,category,revenue,units_sold,profit,growth_rate
+2024-01,North America,Electronics,142500,1203,52300,0.12
+2024-01,Europe,Electronics,98200,876,34100,0.08
+2024-01,Asia,Electronics,187400,2104,71200,0.21
+2024-01,North America,Apparel,45200,3201,18700,0.05
+2024-01,Europe,Apparel,38100,2980,15200,0.03
+2024-01,Asia,Apparel,62300,5402,23800,0.14
+2024-02,North America,Electronics,158300,1354,61200,0.11
+2024-02,Europe,Electronics,104700,942,37800,0.07
+2024-02,Asia,Electronics,201500,2289,78400,0.18
+2024-02,North America,Apparel,51400,3600,21900,0.14
+2024-02,Europe,Apparel,42300,3310,17800,0.11
+2024-02,Asia,Apparel,71200,6100,28500,0.14
+2024-03,North America,Electronics,173200,1489,68400,0.09
+2024-03,Europe,Electronics,111800,1021,42300,0.07
+2024-03,Asia,Electronics,219400,2501,87100,0.15
+2024-03,North America,Apparel,58900,4100,25200,0.15
+2024-03,Europe,Apparel,47800,3750,20300,0.13
+2024-03,Asia,Apparel,83400,7200,34100,0.17
+2024-04,North America,Electronics,162800,1376,62100,0.06
+2024-04,Europe,Electronics,108300,987,39700,0.03
+2024-04,Asia,Electronics,228100,2612,94300,0.11
+2024-04,North America,Apparel,61200,4310,26400,0.04
+2024-04,Europe,Apparel,49100,3890,21100,0.03
+2024-04,Asia,Apparel,89600,7810,37400,0.07
