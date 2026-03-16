@@ -278,11 +278,22 @@ export default function Dashboard() {
             });
             
             clearTimeout(timeoutId);
-            const data = await response.json();
+            const text = await response.text();
 
             if (!response.ok) {
-                throw new Error(data.detail || "Failed to generate dashboard.");
+                console.error(`Query failed: ${response.status} ${response.statusText}`);
+                console.log("Response body:", text);
+                let errorMessage = "Failed to generate dashboard.";
+                try {
+                    const errorData = JSON.parse(text);
+                    errorMessage = errorData.detail || errorMessage;
+                } catch (e) {
+                    // Not JSON, use generic error or statusText
+                }
+                throw new Error(errorMessage);
             }
+
+            const data = JSON.parse(text);
 
             setHistory((prev) => {
                 const nextHistory = [...prev];
