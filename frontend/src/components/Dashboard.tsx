@@ -114,18 +114,32 @@ export default function Dashboard() {
 
     async function loadDataset() {
         try {
-            const response = await fetch(buildApiUrl("/api/health"));
-            const data = (await response.json()) as DatasetHealth;
+            const url = buildApiUrl("/api/health");
+            const response = await fetch(url);
+            const text = await response.text();
 
-            if (!data.has_data) {
-                // Stay on landing, don't force overlay immediately
+            if (!response.ok) {
+                console.error(`Health check failed: ${response.status} ${response.statusText}`);
+                console.log("Response body:", text);
                 setActiveDataset(null);
                 return;
             }
 
-            setNeedsUpload(false);
-            setActiveDataset(toDatasetState(data));
-        } catch {
+            try {
+                const data = JSON.parse(text) as DatasetHealth;
+                if (!data.has_data) {
+                    setActiveDataset(null);
+                    return;
+                }
+                setNeedsUpload(false);
+                setActiveDataset(toDatasetState(data));
+            } catch (err) {
+                console.error("Failed to parse health JSON:", err);
+                console.log("Raw response was:", text);
+                setActiveDataset(null);
+            }
+        } catch (error) {
+            console.error("Network error during health check:", error);
             setActiveDataset(null);
         }
     }
@@ -133,10 +147,27 @@ export default function Dashboard() {
     async function fetchInsights() {
         try {
             setLoadingInsights(true);
-            const response = await fetch(buildApiUrl("/api/insights"));
-            const data = await response.json();
-            setInsights(data.insights || []);
-        } catch {
+            const url = buildApiUrl("/api/insights");
+            const response = await fetch(url);
+            const text = await response.text();
+
+            if (!response.ok) {
+                console.error(`Insights fetch failed: ${response.status} ${response.statusText}`);
+                console.log("Response body:", text);
+                setInsights([]);
+                return;
+            }
+
+            try {
+                const data = JSON.parse(text);
+                setInsights(data.insights || []);
+            } catch (err) {
+                console.error("Failed to parse insights JSON:", err);
+                console.log("Raw response was:", text);
+                setInsights([]);
+            }
+        } catch (error) {
+            console.error("Error fetching insights:", error);
             setInsights([]);
         } finally {
             setLoadingInsights(false);
@@ -272,16 +303,23 @@ export default function Dashboard() {
 
     async function handleReset() {
         try {
-            const response = await fetch(buildApiUrl("/api/reset"));
-            if (!response.ok) return;
+            const url = buildApiUrl("/api/reset");
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                const text = await response.text();
+                console.error(`Reset failed: ${response.status} ${response.statusText}`);
+                console.log("Response body:", text);
+                return;
+            }
 
             setHistory([]);
             setActiveViewIndex(null);
             setOpenSqlWidgetId(null);
             await loadDataset();
             await fetchInsights();
-        } catch {
-            // Preserve the current UI state on reset failures.
+        } catch (error) {
+            console.error("Error during reset:", error);
         }
     }
 
