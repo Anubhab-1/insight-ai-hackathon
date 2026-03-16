@@ -83,11 +83,15 @@ CORS_ORIGINS = parse_cors_origins(os.environ.get("API_CORS_ORIGINS"))
 CORS_ALLOW_ALL = "*" in CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if CORS_ALLOW_ALL else CORS_ORIGINS,
-    allow_credentials=not CORS_ALLOW_ALL,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/")
+async def root():
+    return {"message": "InsightAI API is running", "env": os.environ.get("RENDER_EXTERNAL_URL", "local")}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
