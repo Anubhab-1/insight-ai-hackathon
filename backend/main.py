@@ -1690,7 +1690,10 @@ You are planning a board-ready analytics dashboard for a non-technical executive
 Current table: {dataset_profile["table"]}
 Schema: {dataset_profile["schema"]}
 Row count: {dataset_profile["row_count"]}
-Columns: {dataset_profile["columns"]}
+
+⚠️ VALID COLUMNS — use ONLY these exact names, no others:
+  {', '.join(dataset_profile['columns'])}
+
 Numeric columns: {dataset_profile["numeric_columns"]}
 Categorical columns: {dataset_profile["categorical_columns"]}
 Date columns: {dataset_profile["date_columns"]}
@@ -1700,6 +1703,7 @@ Return JSON only in this shape:
 {{
   "dashboard_title": "short title",
   "dashboard_subtitle": "one sentence framing the answer",
+  "executive_summary": "2-sentence CEO summary with **bold** numbers from the data. Example: The top region generated **$2.4M** in revenue, which is **34%** above average.",
   "confidence": "high|medium|low",
   "cannot_answer": false,
   "cannot_answer_reason": "",
@@ -1721,6 +1725,7 @@ Return JSON only in this shape:
 
 Rules:
 - Build 2 to 4 widgets and 2 to 4 KPIs that together answer the user's request.
+- Use ONLY the valid column names listed above. Do NOT invent aliases that are not in the list.
 - Use only SQLite SELECT or WITH statements. No semicolons. No markdown.
 - KPI SQL must return one row. Alias the main value column to "value" when possible.
 - Widget SQL should usually return 3 to 12 rows unless the user clearly asked for detail.
@@ -1728,6 +1733,7 @@ Rules:
 - Favor dashboards that include a trend, a segment comparison, and one supporting view when the request is broad.
 - If the request is a follow-up like "now filter this", apply the conversation history.
 - If the request cannot be answered from this dataset, set cannot_answer to true and leave kpis/widgets empty.
+- The executive_summary MUST use **bold** markdown for the most important numbers.
 """
 
     response = await call_llm_with_retry(
@@ -1902,8 +1908,8 @@ Executed widget results (truncated rows only):
 
 Return JSON only:
 {{
-  "executive_summary": "3-4 sentence summary for a CXO",
-  "recommendations": ["action 1", "action 2", "action 3"],
+  "executive_summary": "2-3 sentence summary for a CXO. You MUST use **bold** markdown for the most important numbers and segment names. Example: **North America** led with **$2.4M** in revenue—**34%** above the global average.",
+  "recommendations": ["specific action 1 with a number or segment", "action 2", "action 3"],
   "widget_insights": [{{"id": "widget_id", "insight": "one sentence insight"}}],
   "kpi_insights": [{{"title": "KPI title", "insight": "one sentence insight"}}],
   "follow_up_questions": ["question 1", "question 2", "question 3"]
@@ -1911,7 +1917,8 @@ Return JSON only:
 
 Rules:
 - Use only the values and rows provided above.
-- Mention actual figures when they are available.
+- Mention actual figures from the data — never guess or estimate.
+- Bold (with **) the top metric figure and the leading segment name.
 - Keep recommendations specific and business-oriented.
 - If the evidence is weak or partial, say so instead of inventing details.
 """

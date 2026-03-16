@@ -1,7 +1,7 @@
 import { ChartConfig } from "@/types";
 import {
     LineChart, Line, BarChart, Bar, PieChart, Pie, ScatterChart, Scatter,
-    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, AreaChart, Area, Treemap
+    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, AreaChart, Area, Treemap, Brush
 } from "recharts";
 
 // ── Neural Void Palette ──
@@ -290,7 +290,7 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
             case 'area':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: chartData.length > 8 ? 30 : 0 }}>
                             <defs>
                                 <linearGradient id="nvGradient" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor={primaryColor} stopOpacity={0.25} />
@@ -308,13 +308,18 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
                             <Area type="monotone" dataKey={renderConfig.yAxis} stroke={primaryColor} strokeWidth={2.5}
                                 fillOpacity={1} fill="url(#nvGradient)" activeDot={{ r: 6, stroke: primaryColor, strokeWidth: 2, fill: '#04030a' }}
                                 animationDuration={1500} />
+                            {chartData.length > 8 && (
+                                <Brush dataKey={renderConfig.xAxis} height={22} travellerWidth={6}
+                                    stroke="rgba(139,92,246,0.25)" fill="rgba(9,7,20,0.8)"
+                                    className="recharts-brush" />
+                            )}
                         </AreaChart>
                     </ResponsiveContainer>
                 );
             case 'multi_line':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={sortedSeriesData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <LineChart data={sortedSeriesData} margin={{ top: 10, right: 10, left: 0, bottom: sortedSeriesData.length > 8 ? 30 : 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                             <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis} />
                             <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
@@ -324,6 +329,10 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
                                 <Line key={key} type="monotone" dataKey={key} name={key} stroke={COLORS[i % COLORS.length]}
                                     strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} animationDuration={1500} />
                             ))}
+                            {sortedSeriesData.length > 8 && (
+                                <Brush dataKey={renderConfig.xAxis} height={22} travellerWidth={6}
+                                    stroke="rgba(139,92,246,0.25)" fill="rgba(9,7,20,0.8)" />
+                            )}
                         </LineChart>
                     </ResponsiveContainer>
                 );

@@ -7,6 +7,17 @@ import { ChartConfig, QueryResponse } from "@/types";
 import { downloadWidgetCsv, exportDashboardPdf } from "@/lib/export";
 import { ArrowRight, BrainCircuit, CheckCircle2, Download, FileDown, Loader2, ShieldAlert, Sparkles, Zap } from "lucide-react";
 
+/** Render **bold** markdown spans as <strong> elements */
+function renderMarkdown(text: string): React.ReactNode[] {
+    const parts = text.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+            return <strong key={i} className="font-bold text-violet-300">{part.slice(2, -2)}</strong>;
+        }
+        return <span key={i}>{part}</span>;
+    });
+}
+
 function confidenceClasses(confidence?: string) {
     if (confidence === "high") return "nv-pill-emerald px-4 py-1.5";
     if (confidence === "medium") return "nv-pill-cyan px-4 py-1.5";
@@ -24,7 +35,7 @@ const containerVariants = {
 
 const itemVariants = {
     hidden: { opacity: 0, y: 24, scale: 0.98 },
-    show: { opacity: 1, y: 0, scale: 1, transition: { type: "spring", stiffness: 100, damping: 20 } }
+    show: { opacity: 1, y: 0, scale: 1, transition: { type: "spring" as const, stiffness: 100, damping: 20 } }
 };
 
 export default function ExecutiveDashboardView({
@@ -99,9 +110,13 @@ export default function ExecutiveDashboardView({
                         <h2 className="nv-gradient-text text-3xl font-bold tracking-tight sm:text-5xl">
                             {item.response.dashboard_title}
                         </h2>
-                        <p className="text-base leading-relaxed text-slate-300 sm:text-lg sm:leading-9">
-                            {item.response.executive_summary}
-                        </p>
+                        {/* AI Narrative with markdown bold support */}
+                        <div className="rounded-2xl border-l-4 p-4 sm:p-5" style={{ borderColor: "rgba(139,92,246,0.5)", background: "rgba(139,92,246,0.05)" }}>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2" style={{ color: "#7c6fa0" }}>AI Synthesis</p>
+                            <p className="text-sm leading-relaxed text-slate-200 sm:text-base sm:leading-8">
+                                {renderMarkdown(item.response.executive_summary)}
+                            </p>
+                        </div>
                     </div>
 
                     <div className="flex flex-col gap-4 sm:flex-row lg:flex-col lg:items-end">

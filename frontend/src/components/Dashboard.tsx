@@ -15,6 +15,10 @@ import {
     Send,
     Sparkles,
     Zap,
+    Hash,
+    Calendar,
+    Tag,
+    MessageSquare,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import UploadOverlay from "./UploadOverlay";
@@ -231,8 +235,8 @@ export default function Dashboard() {
                                 <div className="mb-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#7c6fa0" }}>
                                     <Database className="h-3.5 w-3.5" /> Active Source
                                 </div>
-                                {activeDataset ? (
-                                    <div className="space-y-4">
+                            {activeDataset ? (
+                                    <div className="space-y-3">
                                         <p className="text-base font-bold capitalize text-white">{activeDataset.name.replace(/_/g, " ")}</p>
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="rounded-2xl p-2.5 text-center" style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.1)" }}>
@@ -242,6 +246,30 @@ export default function Dashboard() {
                                             <div className="rounded-2xl p-2.5 text-center" style={{ background: "rgba(6,182,212,0.05)", border: "1px solid rgba(6,182,212,0.1)" }}>
                                                 <p className="text-[9px] uppercase tracking-widest text-slate-500">Cols</p>
                                                 <p className="text-sm font-bold text-white">{activeDataset.columns.length}</p>
+                                            </div>
+                                        </div>
+                                        {/* Column type badges */}
+                                        <div className="pt-1 space-y-2">
+                                            <p className="text-[9px] uppercase tracking-widest text-slate-600">Schema</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {activeDataset.columns.slice(0, 16).map(col => {
+                                                    const isDate = /(date|time|month|year|published|created)/i.test(col);
+                                                    const isNum = /(revenue|count|score|rate|views|likes|shares|amount|sales|profit|duration|hours|seconds|usd|gained)/i.test(col);
+                                                    const icon = isDate ? '📅' : isNum ? '🔢' : '🏷️';
+                                                    const color = isDate ? 'rgba(6,182,212,0.15)' : isNum ? 'rgba(16,185,129,0.15)' : 'rgba(139,92,246,0.1)';
+                                                    const border = isDate ? 'rgba(6,182,212,0.2)' : isNum ? 'rgba(16,185,129,0.2)' : 'rgba(139,92,246,0.15)';
+                                                    return (
+                                                        <span key={col} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium text-white/70"
+                                                            style={{ background: color, border: `1px solid ${border}` }}>
+                                                            {icon} {col.replace(/_/g, ' ')}
+                                                        </span>
+                                                    );
+                                                })}
+                                                {activeDataset.columns.length > 16 && (
+                                                    <span className="rounded-full px-2 py-0.5 text-[9px] text-slate-600" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                        +{activeDataset.columns.length - 16} more
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -316,7 +344,29 @@ export default function Dashboard() {
                                     </button>
                                 </div>
                             </form>
+
+                            {/* Context turn count badge */}
+                            {history.length > 0 && (
+                                <div className="hidden sm:flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest whitespace-nowrap"
+                                    style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)', color: '#c4b5fd' }}>
+                                    <MessageSquare className="h-3 w-3" />
+                                    {history.length} turn{history.length !== 1 ? 's' : ''} active
+                                </div>
+                            )}
                         </div>
+
+                        {/* Example prompt chips — shown only before first query */}
+                        {activeDataset && history.length === 0 && activeDataset.examplePrompts.length > 0 && (
+                            <div className="mx-auto mt-3 flex w-full max-w-6xl flex-wrap gap-2 px-0">
+                                {activeDataset.examplePrompts.map((p, i) => (
+                                    <button key={i} onClick={() => void submitQuery(p)}
+                                        className="rounded-full px-4 py-1.5 text-[11px] font-semibold transition-all hover:scale-105"
+                                        style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.18)', color: '#c4b5fd' }}>
+                                        ✦ {p}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </header>
 
                     {/* Dashboard Main Scroll Surface */}
