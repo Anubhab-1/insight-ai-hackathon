@@ -1963,24 +1963,21 @@ Output MUST follow the strict JSON formatting rules provided.
     return result
 
 @app.get("/api/health")
-def health():
+async def health():
     try:
-        has_data = active_schema and "No data" not in active_schema
+        has_data = active_schema is not None and "No data" not in active_schema
         dataset_profile = get_dataset_profile()
-        is_demo_mode = client is None
         return {
             "status": "ok",
             "has_data": has_data,
             "table": active_table,
             "row_count": dataset_profile.get("row_count", 0),
             "columns": dataset_profile.get("columns", []),
-            "schema": dataset_profile.get("schema", ""),
-            "example_prompts": dataset_profile.get("example_prompts", []),
-            "demo_mode": is_demo_mode,
+            "llm_client": client is not None
         }
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
 
 @app.get("/api/insights")
 async def get_insights():
@@ -2109,10 +2106,11 @@ async def upload_csv(file: UploadFile = File(...)):
 @app.post("/api/query")
 async def query_data(request: QueryRequest):
     if not request.query or not request.query.strip():
-        raise HTTPException(status_code=400, detail="Query cannot be empty. Please provide a question.")
+        return JSONResponse(status_code=400, content={"detail": "Query cannot be empty. Please provide a question."})
 
     if not active_schema or "No data" in active_schema:
-        raise HTTPException(status_code=400, detail="I don't have data on that. Please upload a CSV first.")
+        print("QUERY REJECTED: No data loaded.")
+        return JSONResponse(status_code=400, content={"detail": "No dataset found. Please upload a CSV first to start analyzing."})
         
     if not client:
          raise HTTPException(status_code=500, detail="LLM_API_KEY is missing. Please set it in the backend.")
