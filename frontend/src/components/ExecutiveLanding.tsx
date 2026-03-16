@@ -1,7 +1,7 @@
 "use client";
 
 import { InsightCard } from "@/types";
-import { ArrowRight, BarChart3, BrainCircuit, Database, ShieldCheck, Sparkles, WandSparkles } from "lucide-react";
+import { ArrowRight, BarChart3, BrainCircuit, Database, ShieldCheck, Sparkles, Zap } from "lucide-react";
 
 interface DatasetState {
     name: string;
@@ -16,13 +16,15 @@ interface PromptCard {
     prompt: string;
 }
 
+const FEATURE_PILLS = [
+    { icon: ShieldCheck, label: "Grounded SQL", color: "#10b981", bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.2)" },
+    { icon: BrainCircuit, label: "Agentic Self-Healing", color: "#06b6d4", bg: "rgba(6,182,212,0.1)", border: "rgba(6,182,212,0.2)" },
+    { icon: BarChart3, label: "Bento Dashboards", color: "#8b5cf6", bg: "rgba(139,92,246,0.1)", border: "rgba(139,92,246,0.2)" },
+    { icon: Zap, label: "Real-time Narration", color: "#c026d3", bg: "rgba(192,38,211,0.1)", border: "rgba(192,38,211,0.2)" },
+];
+
 export default function ExecutiveLanding({
-    activeDataset,
-    insights,
-    loadingInsights,
-    promptCards,
-    onRunPrompt,
-    onOpenUpload,
+    activeDataset, insights, loadingInsights, promptCards, onRunPrompt, onOpenUpload,
 }: {
     activeDataset: DatasetState | null;
     insights: InsightCard[];
@@ -32,161 +34,177 @@ export default function ExecutiveLanding({
     onOpenUpload: () => void;
 }) {
     return (
-        <div className="space-y-12 py-4">
-            {/* Hero Section */}
-            <section className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-[linear-gradient(145deg,_rgba(15,23,42,0.6),_rgba(2,6,23,0.8))] p-8 shadow-[0_40px_100px_rgba(0,0,0,0.5)] sm:p-12 lg:p-16">
-                <div className="pointer-events-none absolute inset-0">
-                    <div className="absolute -left-20 -top-20 h-80 w-80 rounded-full bg-blue-500/10 blur-[100px]" />
-                    <div className="absolute -bottom-20 -right-20 h-80 w-80 rounded-full bg-amber-500/10 blur-[100px]" />
+        <div className="space-y-8 py-2 sm:space-y-10 sm:py-4">
+            {/* ── Hero Section ── */}
+            <section className="nv-card relative overflow-hidden rounded-[2rem] p-6 shadow-[0_40px_100px_rgba(0,0,0,0.5)] sm:rounded-[2.5rem] sm:p-10 lg:p-14">
+                {/* Internal orbs */}
+                <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                    <div className="absolute -left-16 -top-16 h-64 w-64 rounded-full opacity-20 blur-[80px] sm:h-80 sm:w-80"
+                        style={{ background: "radial-gradient(circle, #7c3aed, transparent 70%)", animation: "orb-drift-a 18s ease-in-out infinite" }} />
+                    <div className="absolute -bottom-16 -right-16 h-64 w-64 rounded-full opacity-15 blur-[70px] sm:h-80 sm:w-80"
+                        style={{ background: "radial-gradient(circle, #c026d3, transparent 70%)", animation: "orb-drift-b 22s ease-in-out infinite" }} />
+                    <div className="absolute right-1/3 top-1/2 h-48 w-48 -translate-y-1/2 rounded-full opacity-10 blur-[60px]"
+                        style={{ background: "radial-gradient(circle, #06b6d4, transparent 70%)", animation: "orb-drift-c 26s ease-in-out infinite" }} />
                 </div>
 
-                <div className="relative z-10 flex flex-col gap-12 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="max-w-3xl space-y-8">
-                        <div className="inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.24em] text-white backdrop-blur-md shadow-2xl">
-                            <div className="h-7 w-7 overflow-hidden rounded-lg">
-                                <img src="/images/lumina_logo.png" alt="Lumina Logo" className="w-full h-full object-contain" />
-                            </div>
-                            The New Standard in Decision Intelligence
+                <div className="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="max-w-2xl space-y-6">
+                        {/* Badge */}
+                        <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] backdrop-blur-md sm:px-4 sm:py-2"
+                            style={{ borderColor: "rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.08)", color: "#c4b5fd" }}>
+                            <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-400" />
+                            Neural Intelligence Platform
                         </div>
-                        
-                        <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-7xl">
-                            Intelligence that <span className="bg-gradient-to-r from-amber-200 via-blue-200 to-white bg-clip-text text-transparent">Feels Like Magic.</span>
+
+                        {/* Heading */}
+                        <h1 className="text-3xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">
+                            Data that{" "}
+                            <span className="nv-gradient-text">thinks for itself.</span>
                         </h1>
-                        
-                        <p className="max-w-2xl text-lg leading-relaxed text-slate-300 sm:text-xl sm:leading-9">
-                            Lumina transforms raw data into high-fidelity executive narratives. Connect your dataset once, and let our agents plan, query, and narrate your business performance in real-time.
+
+                        <p className="max-w-xl text-sm leading-relaxed sm:text-base sm:leading-8" style={{ color: "#a89bc2" }}>
+                            Lumina transforms raw CSV data into executive narratives and live dashboards through autonomous agentic SQL planning — no code, no configuration.
                         </p>
 
+                        {/* Feature pills */}
+                        <div className="flex flex-wrap gap-2 sm:gap-3">
+                            {FEATURE_PILLS.map(({ icon: Icon, label, color, bg, border }) => (
+                                <div
+                                    key={label}
+                                    className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium sm:gap-2 sm:px-4 sm:py-2 sm:text-sm"
+                                    style={{ background: bg, borderColor: border, color }}
+                                >
+                                    <Icon className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+                                    {label}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* CTA */}
                         {!activeDataset && (
                             <button
                                 onClick={onOpenUpload}
-                                className="group inline-flex items-center gap-3 rounded-2xl bg-white px-8 py-4 text-base font-bold text-slate-950 shadow-[0_20px_50px_rgba(255,255,255,0.2)] transition hover:scale-[1.02] hover:bg-slate-100"
+                                className="liquid-btn nv-btn-primary group inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold text-white sm:gap-3 sm:px-7 sm:py-4 sm:text-base"
                             >
-                                Connect Dataset
-                                <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+                                <Database className="h-4 w-4 sm:h-5 sm:w-5" />
+                                Upload Dataset
+                                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1 sm:h-5 sm:w-5" />
                             </button>
                         )}
-
-                        <div className="flex flex-wrap gap-4">
-                            <div className="flex items-center gap-2 rounded-2xl border border-white/6 bg-white/5 px-5 py-3 text-sm text-slate-300">
-                                <ShieldCheck className="h-5 w-5 text-emerald-400" />
-                                Grounded in Safe SQL
-                            </div>
-                            <div className="flex items-center gap-2 rounded-2xl border border-white/6 bg-white/5 px-5 py-3 text-sm text-slate-300">
-                                <BrainCircuit className="h-5 w-5 text-blue-400" />
-                                Agentic Self-Healing
-                            </div>
-                        </div>
                     </div>
 
-                    <div className="relative shrink-0">
-                        <div className="absolute inset-0 animate-pulse bg-blue-500/20 blur-3xl" />
-                        <div className="relative flex h-64 w-64 items-center justify-center rounded-[3rem] border border-white/15 bg-slate-900/50 backdrop-blur-3xl sm:h-80 sm:w-80">
-                            <WandSparkles className="h-32 w-32 animate-float text-amber-200/80 sm:h-40 sm:w-40" />
+                    {/* Right: animated icon */}
+                    <div className="relative mx-auto shrink-0 sm:mx-0">
+                        <div className="absolute inset-0 rounded-[2.5rem] blur-3xl opacity-30"
+                            style={{ background: "linear-gradient(135deg, #7c3aed, #c026d3)" }} />
+                        <div className="relative flex h-44 w-44 items-center justify-center rounded-[2.5rem] border sm:h-56 sm:w-56 lg:h-64 lg:w-64"
+                            style={{ borderColor: "rgba(139,92,246,0.2)", background: "rgba(9,7,20,0.8)" }}>
+                            {/* Neural pulse rings */}
+                            <div className="absolute inset-8 rounded-full border opacity-30"
+                                style={{ borderColor: "rgba(139,92,246,0.4)", animation: "neural-pulse 2.4s ease-in-out infinite" }} />
+                            <div className="absolute inset-10 rounded-full border opacity-20"
+                                style={{ borderColor: "rgba(6,182,212,0.5)", animation: "neural-pulse 2.4s ease-in-out infinite 0.8s" }} />
+                            <Sparkles className="h-16 w-16 sm:h-20 sm:w-20 lg:h-24 lg:w-24" style={{ color: "#c4b5fd", animation: "float 7s ease-in-out infinite" }} />
                         </div>
                     </div>
                 </div>
             </section>
 
-            {/* Content Grid */}
-            <div className="grid gap-8 lg:grid-cols-2">
+            {/* ── Content Grid ── */}
+            <div className="grid gap-6 lg:grid-cols-2">
                 {/* Dataset Portal */}
-                <section className="group rounded-[2.5rem] border border-white/10 bg-white/[0.03] p-8 transition-all duration-500 hover:border-amber-300/20 hover:bg-white/[0.05] sm:p-10">
-                    <div className="mb-8 flex items-center justify-between">
+                <section className="nv-card nv-card-hover rounded-[2rem] p-6 sm:p-8">
+                    <div className="mb-5 flex items-center justify-between sm:mb-6">
                         <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-slate-950 p-3 text-amber-200 group-hover:bg-amber-300 group-hover:text-slate-950 transition-colors">
-                                <Database className="h-6 w-6" />
+                            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border sm:h-12 sm:w-12"
+                                style={{ borderColor: "rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.1)" }}>
+                                <Database className="h-5 w-5 sm:h-6 sm:w-6" style={{ color: "#c4b5fd" }} />
                             </div>
                             <div>
-                                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-500">Source Connection</p>
-                                <h2 className="text-2xl font-semibold text-white">Dataset Insight</h2>
+                                <p className="text-[10px] font-bold uppercase tracking-[0.24em] sm:text-[11px]" style={{ color: "#7c6fa0" }}>Source Connection</p>
+                                <h2 className="text-lg font-semibold text-white sm:text-2xl">Dataset Insight</h2>
                             </div>
                         </div>
                         {activeDataset && (
-                            <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20">Active</span>
+                            <span className="nv-pill-emerald rounded-full px-2.5 py-1 text-xs font-bold sm:px-3">Active</span>
                         )}
                     </div>
 
                     {activeDataset ? (
-                        <div className="space-y-6">
-                            <div className="rounded-[2rem] border border-white/8 bg-slate-950/50 p-6">
-                                <p className="text-3xl font-bold capitalize text-white">{activeDataset.name.replace(/_/g, " ")}</p>
-                                <div className="mt-4 grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <p className="text-[10px] uppercase tracking-widest text-slate-500">Volume</p>
-                                        <p className="text-lg font-semibold text-white">{activeDataset.rows.toLocaleString()}</p>
+                        <div className="space-y-4 sm:space-y-5">
+                            <div className="rounded-2xl border p-4 sm:p-5"
+                                style={{ borderColor: "rgba(139,92,246,0.12)", background: "rgba(139,92,246,0.04)" }}>
+                                <p className="text-xl font-bold capitalize text-white sm:text-2xl">{activeDataset.name.replace(/_/g, " ")}</p>
+                                <div className="mt-3 grid grid-cols-2 gap-3 sm:gap-4">
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-widest" style={{ color: "#7c6fa0" }}>Rows</p>
+                                        <p className="mt-1 text-base font-semibold text-white sm:text-lg">{activeDataset.rows.toLocaleString()}</p>
                                     </div>
-                                    <div className="space-y-1">
-                                        <p className="text-[10px] uppercase tracking-widest text-slate-500">Dimensions</p>
-                                        <p className="text-lg font-semibold text-white">{activeDataset.columns.length}</p>
+                                    <div>
+                                        <p className="text-[10px] uppercase tracking-widest" style={{ color: "#7c6fa0" }}>Columns</p>
+                                        <p className="mt-1 text-base font-semibold text-white sm:text-lg">{activeDataset.columns.length}</p>
                                     </div>
                                 </div>
                             </div>
-                            <div className="space-y-3">
-                                <p className="text-xs font-bold uppercase tracking-widest text-slate-500 px-1">Quick Exploration</p>
+                            <div className="space-y-2.5">
+                                <p className="px-1 text-[10px] font-bold uppercase tracking-widest sm:text-xs" style={{ color: "#7c6fa0" }}>Quick Exploration</p>
                                 {promptCards.slice(0, 2).map((item) => (
-                                    <button
-                                        key={item.label}
-                                        onClick={() => onRunPrompt(item.prompt)}
-                                        className="flex w-full items-center justify-between rounded-2xl border border-white/6 bg-white/4 p-4 text-left transition hover:border-white/15 hover:bg-white/8"
-                                    >
-                                        <span className="text-sm font-medium text-slate-300">{item.prompt}</span>
-                                        <ArrowRight className="h-4 w-4 text-slate-500" />
+                                    <button key={item.label} onClick={() => onRunPrompt(item.prompt)}
+                                        className="flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-all hover:border-violet-500/30 sm:px-5 sm:py-4"
+                                        style={{ borderColor: "rgba(139,92,246,0.1)", background: "rgba(139,92,246,0.03)" }}>
+                                        <span className="pr-3 text-xs leading-relaxed text-white/80 sm:text-sm">{item.prompt}</span>
+                                        <ArrowRight className="h-4 w-4 shrink-0" style={{ color: "#7c6fa0" }} />
                                     </button>
                                 ))}
                             </div>
                         </div>
                     ) : (
-                        <div className="flex h-48 flex-col items-center justify-center rounded-[2rem] border border-dashed border-white/10 bg-slate-950/40 px-6 text-center">
-                            <p className="text-slate-400">No dataset connected.</p>
-                            <button 
-                                onClick={onOpenUpload}
-                                className="mt-4 flex items-center gap-2 text-sm font-semibold text-amber-200 hover:text-amber-100 transition-colors"
-                            >
+                        <div className="flex h-40 flex-col items-center justify-center rounded-2xl border border-dashed px-5 text-center sm:h-48"
+                            style={{ borderColor: "rgba(139,92,246,0.15)", background: "rgba(139,92,246,0.02)" }}>
+                            <p className="text-sm" style={{ color: "#7c6fa0" }}>No dataset connected yet.</p>
+                            <button onClick={onOpenUpload}
+                                className="mt-3 flex items-center gap-2 text-xs font-semibold transition-colors hover:text-violet-300 sm:text-sm"
+                                style={{ color: "#c4b5fd" }}>
                                 <Database className="h-4 w-4" />
-                                Connect a CSV to unlock Lumina
+                                Upload a CSV to unlock Lumina
                             </button>
                         </div>
                     )}
                 </section>
 
-                {/* Proactive Insights Center */}
-                <section className="rounded-[2.5rem] border border-white/10 bg-white/[0.03] p-8 sm:p-10">
-                    <div className="mb-8">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-500">Intelligence Engine</p>
-                        <h2 className="text-2xl font-semibold text-white">Proactive Discoveries</h2>
+                {/* Proactive Insights */}
+                <section className="nv-card nv-card-hover rounded-[2rem] p-6 sm:p-8">
+                    <div className="mb-5 sm:mb-6">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.24em] sm:text-[11px]" style={{ color: "#7c6fa0" }}>Intelligence Engine</p>
+                        <h2 className="mt-1 text-lg font-semibold text-white sm:text-2xl">Proactive Discoveries</h2>
                     </div>
 
                     {loadingInsights ? (
-                        <div className="space-y-4">
+                        <div className="space-y-3 sm:space-y-4">
                             {[1, 2].map(i => (
-                                <div key={i} className="h-28 animate-pulse rounded-[1.5rem] border border-white/8 bg-white/4" />
+                                <div key={i} className="h-24 animate-pulse rounded-2xl border sm:h-28"
+                                    style={{ borderColor: "rgba(139,92,246,0.1)", background: "rgba(139,92,246,0.03)" }} />
                             ))}
                         </div>
                     ) : insights.length > 0 ? (
-                        <div className="space-y-4">
+                        <div className="space-y-3 sm:space-y-4">
                             {insights.slice(0, 2).map((card, index) => (
-                                <div
-                                    key={`${card.title}-${index}`}
-                                    className="rounded-[1.5rem] border border-white/8 bg-slate-950/50 p-5 shadow-lg"
-                                >
-                                    <div className="mb-3 flex items-center gap-3">
-                                        <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-2 text-blue-400">
-                                            <Sparkles className="h-4 w-4" />
+                                <div key={`${card.title}-${index}`} className="nv-card nv-card-hover rounded-2xl p-4 sm:p-5">
+                                    <div className="mb-2 flex items-center gap-2 sm:gap-3">
+                                        <div className="rounded-xl border p-1.5 sm:p-2" style={{ borderColor: "rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.1)" }}>
+                                            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4" style={{ color: "#c4b5fd" }} />
                                         </div>
-                                        <p className="font-semibold text-white">{card.title}</p>
+                                        <p className="text-sm font-semibold text-white sm:text-base">{card.title}</p>
                                     </div>
-                                    <p className="text-sm leading-relaxed text-slate-400 line-clamp-2">{card.description}</p>
+                                    <p className="line-clamp-2 text-xs leading-relaxed sm:text-sm" style={{ color: "#7c6fa0" }}>{card.description}</p>
                                 </div>
                             ))}
-                            <p className="text-center text-xs text-slate-500">
-                                Discover more by chatting with Lumina in the sidebar.
-                            </p>
                         </div>
                     ) : (
-                        <div className="flex h-48 flex-col items-center justify-center rounded-[2rem] border border-dashed border-white/10 bg-slate-950/40 px-6 text-center">
-                            <p className="text-slate-400">Awaiting your data...</p>
-                            <p className="mt-2 text-sm text-slate-500">Lumina generates insights automatically once data is live.</p>
+                        <div className="flex h-40 flex-col items-center justify-center rounded-2xl border border-dashed px-5 text-center sm:h-48"
+                            style={{ borderColor: "rgba(139,92,246,0.15)", background: "rgba(139,92,246,0.02)" }}>
+                            <p className="text-sm" style={{ color: "#7c6fa0" }}>Awaiting your data...</p>
+                            <p className="mt-1 text-xs" style={{ color: "rgba(124,111,160,0.6)" }}>Insights generate automatically once a dataset is live.</p>
                         </div>
                     )}
                 </section>

@@ -14,6 +14,7 @@ import {
     Search,
     Send,
     Sparkles,
+    Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import UploadOverlay from "./UploadOverlay";
@@ -23,24 +24,15 @@ import { DatasetHealth, InsightCard, QueryResponse, UploadResponse } from "@/typ
 import { buildApiUrl } from "@/lib/api";
 
 const PLACEHOLDERS = [
-    "Show monthly views trend and compare performance by region...",
-    "Build an executive dashboard for category performance and sentiment...",
-    "Now filter that to ads-enabled videos only and explain what changed...",
+    "Analyze monthly revenue trends by region...",
+    "Build a category performance dashboard...",
+    "Explain why the North American segment shifted...",
 ];
 
 const DEFAULT_PROMPTS = [
-    {
-        label: "Step 1: Baseline",
-        prompt: "Build an executive dashboard for views, watch time, and estimated revenue by region and category. Highlight the strongest region.",
-    },
-    {
-        label: "Step 2: Ads Filter",
-        prompt: "Now filter that dashboard to ads-enabled videos only and explain what changed in the leaders and laggards.",
-    },
-    {
-        label: "Step 3: English Markets",
-        prompt: "Now narrow it again to English-language videos and compare North America versus Latin America, then call out what shifted versus the previous view.",
-    },
+    { label: "Step 1: Baseline", prompt: "Build an executive dashboard for views, watch time, and estimated revenue by region. Highlight the strongest region." },
+    { label: "Step 2: Analysis", prompt: "Now filter that dashboard to ads-enabled videos only and explain the variance in revenue leaders." },
+    { label: "Step 3: Comparison", prompt: "Compare North America vs Latin America watch time and call out the primary shifting metrics." },
 ];
 
 interface DatasetState {
@@ -58,36 +50,18 @@ interface HistoryEntry {
 }
 
 function toDatasetState(payload: DatasetHealth | UploadResponse): DatasetState {
-    const columns = Array.isArray(payload.columns) ? payload.columns : [];
-    const examplePrompts = Array.isArray(payload.example_prompts) ? payload.example_prompts : [];
-    const schema = payload.schema || "Schema unavailable.";
-
     return {
         name: "table" in payload ? payload.table : payload.table_name,
         rows: payload.row_count,
-        columns,
-        schema,
-        examplePrompts,
+        columns: Array.isArray(payload.columns) ? payload.columns : [],
+        schema: payload.schema || "Schema unavailable.",
+        examplePrompts: Array.isArray(payload.example_prompts) ? payload.example_prompts : [],
     };
 }
 
 function safeJsonParse<T>(text: string, context: string): T | null {
-    try {
-        return JSON.parse(text) as T;
-    } catch (error) {
-        console.error(`${context} JSON parse failed:`, error);
-        console.log("Raw response was:", text);
-        return null;
-    }
-}
-
-// Global declaration for the SpeechRecognition API interface
-// to satisfy TypeScript in components utilizing the API.
-declare global {
-    interface Window {
-        SpeechRecognition: any;
-        webkitSpeechRecognition: any;
-    }
+    try { return JSON.parse(text) as T; } 
+    catch (e) { console.error(`${context} parse failed:`, e); return null; }
 }
 
 export default function Dashboard() {
@@ -117,344 +91,180 @@ export default function Dashboard() {
         const interval = setInterval(() => {
             setPlaceholderIdx((prev) => (prev + 1) % PLACEHOLDERS.length);
         }, 3200);
-
         return () => clearInterval(interval);
     }, []);
 
-    // No auto-load on mount — always start on the upload screen.
-
     async function loadDataset() {
         try {
-            const url = buildApiUrl("/api/health");
-            const response = await fetch(url);
-            const text = await response.text();
-
-            if (!response.ok) {
-                console.error(`Health check failed: ${response.status} ${response.statusText}`);
-                console.log("Response body:", text);
-                setActiveDataset(null);
-                return;
-            }
-
-            const data = safeJsonParse<DatasetHealth>(text, "Health check");
-            if (!data) {
-                setActiveDataset(null);
-                return;
-            }
-            if (!data.has_data) {
-                setActiveDataset(null);
-                return;
-            }
+            const res = await fetch(buildApiUrl("/api/health"));
+            const text = await res.text();
+            if (!res.ok) return setActiveDataset(null);
+            const data = safeJsonParse<DatasetHealth>(text, "Health");
+            if (!data || !data.has_data) return setActiveDataset(null);
             setNeedsUpload(false);
             setActiveDataset(toDatasetState(data));
-        } catch (error) {
-            console.error("Network error during health check:", error);
-            setActiveDataset(null);
-        }
+        } catch (e) { setActiveDataset(null); }
     }
 
     async function fetchInsights() {
         try {
             setLoadingInsights(true);
-            const url = buildApiUrl("/api/insights");
-            const response = await fetch(url);
-            const text = await response.text();
-
-            if (!response.ok) {
-                console.error(`Insights fetch failed: ${response.status} ${response.statusText}`);
-                console.log("Response body:", text);
-                setInsights([]);
-                return;
-            }
-
-            const data = safeJsonParse<{ insights?: InsightCard[] }>(text, "Insights");
+            const res = await fetch(buildApiUrl("/api/insights"));
+            const data = await res.json();
             setInsights(data?.insights || []);
-        } catch (error) {
-            console.error("Error fetching insights:", error);
-            setInsights([]);
-        } finally {
-            setLoadingInsights(false);
-        }
+        } catch (e) { setInsights([]); }
+        finally { setLoadingInsights(false); }
     }
 
     function buildConversationHistory() {
-        return history
-            .filter((entry) => entry.response || entry.error)
-            .flatMap((entry) => {
-                const messages = [{ role: "user", content: entry.query }];
-
-                if (entry.response) {
-                    messages.push({
-                        role: "assistant",
-                        content: `Dashboard: ${entry.response.dashboard_title}. Summary: ${entry.response.executive_summary}. Widgets: ${entry.response.widgets.map((widget) => widget.title).join(", ")}.`,
-                    });
-                } else if (entry.error) {
-                    messages.push({ role: "assistant", content: `Error: ${entry.error}` });
-                }
-
-                return messages;
-            })
-            .slice(-8);
+        return history.filter(h => h.response || h.error).flatMap(h => {
+            const m = [{ role: "user", content: h.query }];
+            if (h.response) m.push({ role: "assistant", content: `Title: ${h.response.dashboard_title}. Summary: ${h.response.executive_summary}.` });
+            else if (h.error) m.push({ role: "assistant", content: `Error: ${h.error}` });
+            return m;
+        }).slice(-6);
     }
 
     useEffect(() => {
-        let timer: ReturnType<typeof setTimeout>;
+        let timer: any;
         if (loadingQuery) {
             setThinkingStage(0);
-            const cycleStages = () => {
-                setThinkingStage((prev) => {
-                    const next = prev + 1;
-                    if (next < THINKING_STAGES.length) {
-                        timer = setTimeout(cycleStages, next === 1 ? 1500 : next === 2 ? 2000 : next === 3 ? 1500 : 1000);
-                        return next;
+            const cycle = () => {
+                setThinkingStage(p => {
+                    if (p < THINKING_STAGES.length - 1) {
+                        timer = setTimeout(cycle, 1500);
+                        return p + 1;
                     }
-                    return prev;
+                    return p;
                 });
             };
-            timer = setTimeout(cycleStages, 1000);
+            timer = setTimeout(cycle, 1000);
         }
         return () => clearTimeout(timer);
     }, [loadingQuery]);
 
     const startListening = () => {
-        if (!("SpeechRecognition" in window || "webkitSpeechRecognition" in window)) {
-            alert("Speech recognition is not supported in this browser.");
-            return;
-        }
-
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-
-        recognition.continuous = false;
-        recognition.interimResults = true;
-        recognition.lang = "en-US";
-
+        const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SR) return alert("Speech Recognition not supported");
+        const rec = new SR();
+        rec.continuous = false; rec.interimResults = true; rec.lang = "en-US";
         setIsListening(true);
-
-        recognition.onresult = (event: any) => {
-            const current = event.resultIndex;
-            const transcript = event.results[current][0].transcript;
-            setQuery(transcript);
-        };
-
-        recognition.onerror = () => {
-            setIsListening(false);
-        };
-
-        recognition.onend = () => {
-            setIsListening(false);
-            // Automatically submit after the microphone turns off if there is text
-            // Requires a slight delay to ensure the state caught up
-            setTimeout(() => {
-                const triggerButton = document.getElementById("hidden-submit-btn");
-                if (triggerButton) triggerButton.click();
-            }, 300);
-        };
-
-        recognition.start();
+        rec.onresult = (e: any) => setQuery(e.results[e.resultIndex][0].transcript);
+        rec.onerror = () => setIsListening(false);
+        rec.onend = () => { setIsListening(false); setTimeout(() => document.getElementById("hidden-submit-btn")?.click(), 400); };
+        rec.start();
     };
 
-    async function submitQuery(message: string) {
-        const trimmed = message.trim();
-        if (!trimmed || loadingQuery || needsUpload) return;
-
-        setQuery("");
-        setLoadingQuery(true);
-        setOpenSqlWidgetId(null);
-
-        const nextIndex = history.length;
-        setHistory((prev) => [...prev, { query: trimmed, response: null }]);
-        setActiveViewIndex(nextIndex);
-
+    async function submitQuery(msg: string) {
+        const t = msg.trim();
+        if (!t || loadingQuery || needsUpload) return;
+        setQuery(""); setLoadingQuery(true); setOpenSqlWidgetId(null);
+        const idx = history.length;
+        setHistory(p => [...p, { query: t, response: null }]);
+        setActiveViewIndex(idx);
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
-
-            const response = await fetch(buildApiUrl("/api/query"), {
+            const res = await fetch(buildApiUrl("/api/query"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    query: trimmed,
-                    history: buildConversationHistory(),
-                }),
-                signal: controller.signal,
+                body: JSON.stringify({ query: t, history: buildConversationHistory() }),
             });
-            
-            clearTimeout(timeoutId);
-            const text = await response.text();
-
-            if (!response.ok) {
-                console.error(`Query failed: ${response.status} ${response.statusText}`);
-                console.log("Response body:", text);
-                let errorMessage = "Failed to generate dashboard.";
-                try {
-                    const errorData = JSON.parse(text);
-                    errorMessage = errorData.detail || errorMessage;
-                } catch (e) {
-                    // Not JSON, use generic error or statusText
-                }
-                throw new Error(errorMessage);
-            }
-
-            const data = safeJsonParse<QueryResponse>(text, "Query response");
-            if (!data) {
-                throw new Error("Backend returned invalid JSON. Check the server logs.");
-            }
-
-            setHistory((prev) => {
-                const nextHistory = [...prev];
-                nextHistory[nextHistory.length - 1].response = data as QueryResponse;
-                return nextHistory;
-            });
-        } catch (error) {
-            const err = error as Error;
-            setHistory((prev) => {
-                const nextHistory = [...prev];
-                nextHistory[nextHistory.length - 1].error = err.message;
-                return nextHistory;
-            });
-        } finally {
-            setLoadingQuery(false);
-        }
-    }
-
-    async function handleReset() {
-        try {
-            const url = buildApiUrl("/api/reset");
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                const text = await response.text();
-                console.error(`Reset failed: ${response.status} ${response.statusText}`);
-                console.log("Response body:", text);
-                return;
-            }
-
-            setHistory([]);
-            setActiveViewIndex(null);
-            setOpenSqlWidgetId(null);
-            await loadDataset();
-            await fetchInsights();
-        } catch (error) {
-            console.error("Error during reset:", error);
-        }
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Query failed");
+            setHistory(p => { const h = [...p]; h[h.length - 1].response = data; return h; });
+        } catch (e) {
+            setHistory(p => { const h = [...p]; h[h.length - 1].error = (e as Error).message; return h; });
+        } finally { setLoadingQuery(false); }
     }
 
     function handleUploadSuccess(data: UploadResponse) {
-        setNeedsUpload(false);
-        setActiveDataset(toDatasetState(data));
-        setQuery("");
-        setHistory([]);
-        setActiveViewIndex(null);
-        setOpenSqlWidgetId(null);
-        setInsights([]);
-        void fetchInsights();
+        setNeedsUpload(false); setActiveDataset(toDatasetState(data));
+        setQuery(""); setHistory([]); setActiveViewIndex(null);
+        setOpenSqlWidgetId(null); setInsights([]); void fetchInsights();
     }
 
     const activeItem = activeViewIndex !== null ? history[activeViewIndex] : null;
-    const showBlankUploadedState = Boolean(activeDataset) && history.length === 0;
-    const quickPrompts = activeDataset?.examplePrompts?.length
-        ? activeDataset.examplePrompts
-        : [];
+    const isShowingRawDataset = activeDataset && history.length === 0;
 
     return (
-        <div className="app-shell noise-bg min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#030507] to-black text-slate-100 selection:bg-amber-300/30">
-            <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.12),_transparent_25%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.15),_transparent_30%)]" />
+        <div className="nv-bg min-h-screen">
             {needsUpload && <UploadOverlay onUploadSuccess={handleUploadSuccess} />}
-            {sidebarOpen && (
-                <button
-                    aria-label="Close navigation"
-                    className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm md:hidden"
-                    onClick={() => setSidebarOpen(false)}
-                />
-            )}
+            
+            {/* Mobile Sidebar Overlay */}
+            <AnimatePresence>
+                {sidebarOpen && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-md md:hidden"
+                        onClick={() => setSidebarOpen(false)} />
+                )}
+            </AnimatePresence>
 
             <div className="flex min-h-screen">
-                <aside className={`app-sidebar fixed inset-y-0 left-0 z-50 w-[85vw] max-w-72 transform border-r border-white/6 bg-[rgba(5,5,8,0.95)] backdrop-blur-2xl transition-transform duration-300 sm:max-w-80 md:w-72 md:translate-x-0 lg:w-80 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
-                    <div className="flex h-full flex-col">
-                        <div className="border-b border-white/6 px-5 py-4 sm:px-6 sm:py-5">
-                            <div className="flex items-start justify-between gap-4">
-                                <div className="space-y-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 border border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.4)] overflow-hidden p-1.5">
-                                            <img src="/images/lumina_logo.png" alt="Lumina Logo" className="w-full h-full object-contain" />
-                                        </div>
-                                        <div>
-                                            <p className="text-lg font-semibold tracking-tight text-white">Lumina</p>
-                                            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Ambient Intelligence</p>
-                                        </div>
-                                    </div>
-                                    <p className="max-w-xs text-sm leading-relaxed text-slate-400">
-                                        Turn raw data into executive narratives and board-ready dashboards instantly.
-                                    </p>
-                                </div>
+                {/* ── Sidebar ── */}
+                <aside className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r transition-all duration-500 ease-in-out md:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+                    style={{ background: "#090714", borderColor: "rgba(139,92,246,0.12)" }}>
+                    
+                    {/* Animated Data Matrix Lines Background */}
+                    <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-30">
+                        <div className="absolute left-8 h-full w-[1px] bg-gradient-to-b from-transparent via-violet-500/40 to-transparent" style={{ animation: "data-flow 3s linear infinite" }} />
+                        <div className="absolute left-1/2 h-full w-[1px] bg-gradient-to-b from-transparent via-cyan-500/40 to-transparent" style={{ animation: "data-flow 4s linear infinite 1s" }} />
+                        <div className="absolute right-8 h-full w-[1px] bg-gradient-to-b from-transparent via-fuchsia-500/40 to-transparent" style={{ animation: "data-flow 3.5s linear infinite 0.5s" }} />
+                    </div>
 
-                                <button
-                                    className="rounded-xl border border-white/8 p-2 text-slate-400 transition-colors hover:border-white/15 hover:text-white md:hidden"
-                                    onClick={() => setSidebarOpen(false)}
-                                >
-                                    <ChevronLeft className="h-5 w-5" />
-                                </button>
+                    <div className="relative z-10 flex h-full flex-col">
+                        {/* Sidebar Header */}
+                        <div className="px-6 py-6" style={{ borderBottom: "1px solid rgba(139,92,246,0.08)" }}>
+                            <div className="flex items-center gap-3">
+                                <div className="nv-glow flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600/20 border border-violet-500/30 overflow-hidden p-1.5">
+                                    <img src="/images/lumina_logo.png" alt="Logo" className="w-full h-full object-contain" />
+                                </div>
+                                <div>
+                                    <p className="text-lg font-bold tracking-tight text-white">Lumina</p>
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#7c6fa0" }}>Neural Engine</p>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="space-y-6 overflow-y-auto px-5 py-5">
-                            <div className="rounded-[1.25rem] border border-white/6 bg-white/[0.03] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.24)] sm:rounded-3xl sm:p-5">
-                                <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-                                    <Database className="h-4 w-4" />
-                                    Active Dataset
+                        {/* Sidebar Content */}
+                        <div className="flex-1 space-y-6 overflow-y-auto px-5 py-6">
+                            {/* Dataset Info */}
+                            <div className="nv-card rounded-3xl p-5 shadow-2xl">
+                                <div className="mb-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#7c6fa0" }}>
+                                    <Database className="h-3.5 w-3.5" /> Active Source
                                 </div>
-
                                 {activeDataset ? (
                                     <div className="space-y-4">
-                                        <div>
-                                            <p className="text-lg font-semibold capitalize text-white">{activeDataset.name.replace(/_/g, " ")}</p>
-                                            <p className="text-sm text-slate-400">{activeDataset.rows.toLocaleString()} rows available</p>
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-3 text-sm">
-                                            <div className="rounded-[1rem] border border-white/6 bg-slate-900/80 p-3">
-                                                <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Columns</p>
-                                                <p className="mt-1 text-xl font-semibold text-white">{activeDataset.columns.length}</p>
+                                        <p className="text-base font-bold capitalize text-white">{activeDataset.name.replace(/_/g, " ")}</p>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="rounded-2xl p-2.5 text-center" style={{ background: "rgba(139,92,246,0.05)", border: "1px solid rgba(139,92,246,0.1)" }}>
+                                                <p className="text-[9px] uppercase tracking-widest text-slate-500">Rows</p>
+                                                <p className="text-sm font-bold text-white">{activeDataset.rows.toLocaleString()}</p>
                                             </div>
-                                            <div className="rounded-[1rem] border border-white/6 bg-slate-900/80 p-3">
-                                                <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">Status</p>
-                                                <p className="mt-1 text-xl font-semibold text-emerald-300">Live</p>
+                                            <div className="rounded-2xl p-2.5 text-center" style={{ background: "rgba(6,182,212,0.05)", border: "1px solid rgba(6,182,212,0.1)" }}>
+                                                <p className="text-[9px] uppercase tracking-widest text-slate-500">Cols</p>
+                                                <p className="text-sm font-bold text-white">{activeDataset.columns.length}</p>
                                             </div>
                                         </div>
-
-                                        <p className="line-clamp-4 text-sm leading-relaxed text-slate-400">{activeDataset.schema}</p>
                                     </div>
                                 ) : (
-                                    <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/70 p-4 text-sm text-slate-400">
-                                        Upload a CSV to start generating dashboards.
-                                    </div>
+                                    <p className="text-xs italic" style={{ color: "#7c6fa0" }}>Connect a dataset to begin.</p>
                                 )}
                             </div>
 
-                            <div className="rounded-[1.25rem] border border-white/6 bg-white/[0.03] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.24)] sm:rounded-3xl sm:p-5">
-                                <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-                                    <History className="h-4 w-4" />
-                                    Query History
-                                </div>
-
+                            {/* Query History */}
+                            <div className="space-y-4">
+                                <p className="px-1 text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#7c6fa0" }}>Neural History</p>
                                 <div className="space-y-2">
                                     {history.length === 0 ? (
-                                        <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/70 p-4 text-sm text-slate-400">
-                                            Your dashboard conversations will appear here.
+                                        <div className="rounded-2xl border border-dashed p-4 text-center text-xs" style={{ borderColor: "rgba(139,92,246,0.1)", color: "#4d4270" }}>
+                                            No active inquiries.
                                         </div>
                                     ) : (
-                                        history.map((entry, index) => (
-                                            <button
-                                                key={`${entry.query}-${index}`}
-                                                onClick={() => setActiveViewIndex(index)}
-                                                className={`w-full rounded-2xl border px-4 py-3 text-left text-sm transition-all ${activeViewIndex === index
-                                                    ? "border-amber-300/30 bg-amber-300/10 text-white shadow-[0_12px_30px_rgba(245,158,11,0.08)]"
-                                                    : "border-white/8 bg-slate-900/70 text-slate-400 hover:border-white/14 hover:text-slate-100"}`}
-                                            >
-                                                <p className="line-clamp-2 font-medium">{entry.query}</p>
-                                                <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-500">
-                                                    {entry.response ? "Dashboard ready" : entry.error ? "Needs attention" : "Generating"}
+                                        history.map((h, i) => (
+                                            <button key={i} onClick={() => setActiveViewIndex(i)}
+                                                className={`w-full text-left p-3.5 rounded-2xl border transition-all duration-300 ${activeViewIndex === i ? "border-violet-500/40 bg-violet-500/10 shadow-lg" : "border-violet-500/5 bg-white/2 hover:border-violet-500/20"}`}>
+                                                <p className="text-xs font-semibold text-white/90 line-clamp-1">{h.query}</p>
+                                                <p className="mt-1 text-[9px] uppercase tracking-widest" style={{ color: activeViewIndex === i ? "#c4b5fd" : "#4d4270" }}>
+                                                    {h.response ? "Synthesis Complete" : h.error ? "Neural Fault" : "Processing"}
                                                 </p>
                                             </button>
                                         ))
@@ -463,219 +273,111 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        <div className="mt-auto border-t border-white/6 px-4 py-4 sm:px-5 sm:py-5">
-                            <div className="space-y-3">
-                                <button
-                                    onClick={() => setNeedsUpload(true)}
-                                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-white/10"
-                                >
-                                    <Database className="h-4 w-4" />
-                                    Upload New Dataset
-                                </button>
-                            </div>
+                        {/* Sidebar Footer */}
+                        <div className="px-5 py-5" style={{ borderTop: "1px solid rgba(139,92,246,0.08)" }}>
+                            <button onClick={() => setNeedsUpload(true)}
+                                className="liquid-btn group flex w-full items-center justify-center gap-2.5 rounded-2xl p-3 text-xs font-bold text-white transition-all hover:shadow-[0_0_20px_rgba(139,92,246,0.2)]"
+                                style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)" }}>
+                                <Database className="h-4 w-4 text-violet-400 group-hover:scale-110 transition-transform" />
+                                Re-sync Dataset
+                            </button>
                         </div>
                     </div>
                 </aside>
 
-                <div className="app-content relative z-10 flex min-h-screen flex-1 flex-col md:pl-72 lg:pl-80">
-                    <header className="app-header sticky top-0 z-40 border-b border-white/4 bg-[rgba(5,5,8,0.6)] backdrop-blur-2xl">
-                        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-6 sm:py-4 lg:px-8">
-                            <div className="flex items-center gap-3">
-                                <button
-                                    className="rounded-2xl border border-white/8 p-2 text-slate-300 transition hover:border-white/15 hover:text-white md:hidden"
-                                    onClick={() => setSidebarOpen(true)}
-                                >
-                                    <Menu className="h-5 w-5" />
-                                </button>
+                {/* ── Main Content Area ── */}
+                <div className="relative z-10 flex min-h-screen flex-1 flex-col transition-all duration-500 md:pl-72">
+                    
+                    {/* Header: Chat Search Bar */}
+                    <header className="sticky top-0 z-30 px-4 py-4 backdrop-blur-3xl sm:px-8 sm:py-6" style={{ background: "rgba(4,3,10,0.6)", borderBottom: "1px solid rgba(139,92,246,0.06)" }}>
+                        <div className="mx-auto flex w-full max-w-6xl items-center gap-4">
+                            <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 rounded-xl border" style={{ borderColor: "rgba(139,92,246,0.2)" }}>
+                                <Menu className="h-5 w-5 text-violet-400" />
+                            </button>
 
-                                <div className="grid flex-1 gap-3">
-                                    <form
-                                        onSubmit={(event) => {
-                                            event.preventDefault();
-                                            void submitQuery(query);
-                                        }}
-                                        className="relative"
-                                    >
-                                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
-                                            <Search className="h-5 w-5" />
-                                        </div>
-
-                                        <input
-                                            type="text"
-                                            value={query}
-                                            onChange={(event) => setQuery(event.target.value)}
-                                            placeholder={isListening ? "Listening..." : PLACEHOLDERS[placeholderIdx]}
-                                            disabled={loadingQuery || needsUpload || isListening}
-                                            className="h-12 w-full rounded-[1.25rem] border border-white/8 bg-[rgba(8,10,18,0.8)] pl-11 pr-[7rem] text-[13px] text-white shadow-[0_18px_60px_rgba(0,0,0,0.4)] backdrop-blur-xl outline-none transition-all placeholder:text-slate-500 hover:border-white/15 focus:border-amber-300/40 focus:shadow-[0_0_30px_rgba(245,158,11,0.12)] disabled:opacity-60 sm:h-14 sm:rounded-[1.5rem] sm:pl-12 sm:pr-32 sm:text-[14px]"
-                                        />
-
-                                        <div className="absolute right-2 top-2 flex items-center gap-2 sm:right-3 sm:top-2">
-                                            <button
-                                                type="button"
-                                                onClick={startListening}
-                                                disabled={loadingQuery || needsUpload}
-                                                className={`relative flex h-10 w-10 items-center justify-center rounded-[1.15rem] transition-all sm:h-12 sm:w-12 sm:rounded-2xl ${
-                                                    isListening
-                                                        ? "bg-rose-500/20 text-rose-400 shadow-[0_0_30px_rgba(244,63,94,0.4)]"
-                                                        : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
-                                                } disabled:cursor-not-allowed disabled:opacity-50`}
-                                            >
-                                                {isListening && (
-                                                    <span className="absolute inset-0 animate-ping rounded-[1.15rem] bg-rose-500/40 sm:rounded-2xl" />
-                                                )}
-                                                <Mic className="h-5 w-5" />
-                                            </button>
-                                            <button
-                                                type="submit"
-                                                id="hidden-submit-btn"
-                                                disabled={!query.trim() || loadingQuery || needsUpload}
-                                                className="flex h-10 w-10 items-center justify-center rounded-[1.15rem] bg-[linear-gradient(135deg,_#f59e0b,_#2563eb)] text-slate-950 shadow-[0_12px_32px_rgba(37,99,235,0.3)] transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none sm:h-12 sm:w-12 sm:rounded-2xl"
-                                            >
-                                                {loadingQuery ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-                                            </button>
-                                        </div>
-                                    </form>
-
-                                    {!showBlankUploadedState && (
-                                        <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
-                                            {quickPrompts.slice(0, 3).map((prompt) => (
-                                                <button
-                                                    key={prompt}
-                                                    onClick={() => void submitQuery(prompt)}
-                                                    disabled={loadingQuery || needsUpload}
-                                                    className="shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300 transition hover:border-amber-300/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                                                >
-                                                    {prompt}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
+                            <form onSubmit={e => { e.preventDefault(); void submitQuery(query); }} className="relative flex-1 group">
+                                <div className="absolute left-5 top-1/2 -translate-y-1/2">
+                                    <Search className="h-5 w-5 text-violet-500/60 group-focus-within:text-violet-400 transition-colors" />
                                 </div>
-                            </div>
+                                <input type="text" value={query} onChange={e => setQuery(e.target.value)}
+                                    placeholder={isListening ? "Neural listening in progress..." : PLACEHOLDERS[placeholderIdx]}
+                                    disabled={loadingQuery || needsUpload || isListening}
+                                    className="h-14 w-full rounded-2xl border bg-surface/50 pl-14 pr-32 text-sm text-white shadow-2xl backdrop-blur-xl outline-none transition-all placeholder:text-slate-600 focus:border-violet-500/50 focus:shadow-[0_0_40px_rgba(139,92,246,0.15)] disabled:opacity-50"
+                                    style={{ borderColor: "rgba(139,92,246,0.12)" }} />
+                                
+                                <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
+                                    <button type="button" onClick={startListening} disabled={loadingQuery || needsUpload}
+                                        className={`flex h-10 w-10 items-center justify-center rounded-xl transition-all ${isListening ? "bg-rose-500/20 text-rose-400 shadow-[0_0_30px_rgba(244,63,94,0.4)]" : "bg-white/5 text-violet-400 hover:bg-white/10"}`}>
+                                        <Mic className={`h-5 w-5 ${isListening ? "animate-pulse" : ""}`} />
+                                    </button>
+                                    <button type="submit" id="hidden-submit-btn" disabled={!query.trim() || loadingQuery || needsUpload}
+                                        className="nv-btn-primary flex h-10 w-10 items-center justify-center rounded-xl text-white disabled:bg-slate-800 disabled:opacity-40">
+                                        {loadingQuery ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </header>
 
-                    <main className="app-main print-surface mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-3 py-6 sm:gap-8 sm:px-6 sm:py-8 lg:px-8">
+                    {/* Dashboard Main Scroll Surface */}
+                    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-8 sm:px-8">
                         <AnimatePresence mode="wait">
-                            {loadingQuery && activeItem?.response === null ? (
-                                <motion.div 
-                                    key="thinking-terminal"
-                                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                                    className="flex h-[60vh] flex-col items-center justify-center p-4"
-                                >
-                                    <div className="w-full max-w-md space-y-4 rounded-xl border border-slate-800 bg-slate-950 p-6 font-mono text-sm shadow-2xl">
-                                        <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                                            <div className="flex gap-1.5">
-                                                <div className="h-3 w-3 rounded-full bg-rose-500/50" />
-                                                <div className="h-3 w-3 rounded-full bg-amber-500/50" />
-                                                <div className="h-3 w-3 rounded-full bg-emerald-500/50" />
-                                            </div>
-                                            <span className="text-[10px] uppercase tracking-widest text-slate-600">Agentic Pipeline v4.0</span>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            {THINKING_STAGES.map((stage, index) => {
-                                                const isCompleted = index < thinkingStage;
-                                                const isActive = index === thinkingStage;
-                                                const isPending = index > thinkingStage;
-
-                                                return (
-                                                    <div 
-                                                        key={stage} 
-                                                        className={`flex items-start gap-4 transition-colors duration-500 ${isActive ? "text-amber-400" : isCompleted ? "text-slate-500" : "text-slate-700"}`}
-                                                    >
-                                                        <div className="mt-0.5 shrink-0">
-                                                            {isCompleted ? (
-                                                                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                                                            ) : isActive ? (
-                                                                <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
-                                                            ) : (
-                                                                <Circle className="h-4 w-4 text-slate-800" />
-                                                            )}
-                                                        </div>
-                                                        <div className="flex flex-col">
-                                                            <span className={`tracking-tight ${isActive ? "animate-pulse font-medium" : ""}`}>
-                                                                {stage}
-                                                            </span>
-                                                            {isActive && (
-                                                                <span className="text-[10px] text-slate-500 mt-1 opacity-70">
-                                                                    Processing request context...
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
+                            {loadingQuery && !activeItem?.response ? (
+                                <motion.div key="thinking" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                                    className="flex h-[60vh] flex-col items-center justify-center gap-8">
+                                    
+                                    {/* Neural pulse loading animation */}
+                                    <div className="relative h-32 w-32 flex items-center justify-center">
+                                        <div className="absolute inset-0 rounded-full border border-violet-500/40" style={{ animation: "neural-pulse 2s ease-out infinite" }} />
+                                        <div className="absolute inset-4 rounded-full border border-cyan-500/30" style={{ animation: "neural-pulse 2s ease-out infinite 0.5s" }} />
+                                        <div className="absolute inset-8 rounded-full border border-fuchsia-500/20" style={{ animation: "neural-pulse 2s ease-out infinite 1s" }} />
+                                        <div className="relative z-10 flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-600 shadow-[0_0_40px_rgba(139,92,246,0.6)]">
+                                            <Zap className="h-6 w-6 text-white animate-pulse" />
                                         </div>
                                     </div>
 
-                                    <div className="mt-8 flex flex-col items-center gap-2">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-1 w-12 rounded-full bg-slate-800 overflow-hidden">
-                                                <motion.div 
-                                                    className="h-full bg-blue-500"
-                                                    initial={{ width: "0%" }}
-                                                    animate={{ width: `${(thinkingStage / (THINKING_STAGES.length - 1)) * 100}%` }}
-                                                />
-                                            </div>
-                                            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-                                                {Math.round((thinkingStage / (THINKING_STAGES.length - 1)) * 100)}% Complete
-                                            </span>
+                                    <div className="w-full max-w-sm space-y-4">
+                                        <h3 className="nv-gradient-text text-center text-xl font-bold">Lumina is thinking...</h3>
+                                        <div className="space-y-4 rounded-2xl border p-6 bg-surface/40 backdrop-blur-xl" style={{ borderColor: "rgba(139,92,246,0.15)" }}>
+                                            {THINKING_STAGES.map((s, i) => (
+                                                <div key={s} className={`flex items-center gap-3 transition-all duration-500 ${i === thinkingStage ? "text-white scale-105" : i < thinkingStage ? "text-violet-400/60" : "text-slate-800"}`}>
+                                                    {i < thinkingStage ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : i === thinkingStage ? <Loader2 className="h-4 w-4 animate-spin text-violet-400" /> : <div className="h-2 w-2 rounded-full bg-slate-800" />}
+                                                    <span className="text-sm font-medium">{s}</span>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 </motion.div>
                             ) : activeItem ? (
-                            <ExecutiveDashboardView
-                                item={activeItem}
-                                openSqlWidgetId={openSqlWidgetId}
-                                onToggleSql={(widgetId) => setOpenSqlWidgetId((current) => current === widgetId ? null : widgetId)}
-                                onRunPrompt={(prompt) => void submitQuery(prompt)}
-                            />
-                        ) : showBlankUploadedState ? (
-                            <section className="animate-fade-in-up rounded-[1.75rem] border border-white/6 glass-card p-6 shadow-[0_32px_100px_rgba(0,0,0,0.4)] sm:rounded-[2.5rem] sm:p-10">
-                                <div className="max-w-3xl space-y-5">
-                                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-emerald-200">
-                                        <Database className="h-4 w-4" />
-                                        Dataset Loaded
+                                <ExecutiveDashboardView key={activeItem.query} item={activeItem} openSqlWidgetId={openSqlWidgetId}
+                                    onToggleSql={id => setOpenSqlWidgetId(c => c === id ? null : id)}
+                                    onRunPrompt={p => void submitQuery(p)} />
+                            ) : isShowingRawDataset ? (
+                                <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                                    className="nv-card rounded-[2.5rem] p-10 shadow-2xl text-center">
+                                    <div className="nv-glow mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-500/10 border border-emerald-500/25">
+                                        <Database className="h-10 w-10 text-emerald-400" />
                                     </div>
-
-                                    <div className="space-y-3">
-                                        <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                                            {activeDataset?.name.replace(/_/g, " ")}
-                                        </h1>
-                                        <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base sm:leading-8">
-                                            Your CSV is ready. The dashboard will stay empty until you ask the first question.
-                                        </p>
-                                    </div>
-
-                                    <div className="grid gap-4 sm:grid-cols-2 lg:max-w-2xl">
-                                        <div className="rounded-[1.4rem] border border-white/8 bg-white/4 p-4">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Rows</p>
-                                            <p className="mt-2 text-2xl font-semibold text-white">{activeDataset?.rows.toLocaleString()}</p>
-                                        </div>
-                                        <div className="rounded-[1.4rem] border border-white/8 bg-white/4 p-4">
-                                            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Columns</p>
-                                            <p className="mt-2 text-2xl font-semibold text-white">{activeDataset?.columns.length}</p>
-                                        </div>
-                                    </div>
-
-                                    <p className="text-sm text-slate-400">
-                                        Use the search bar above to generate the first dashboard from this dataset.
+                                    <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                                        Neural Link Established.
+                                    </h1>
+                                    <p className="mx-auto mt-4 max-w-xl text-slate-400">
+                                        Your dataset <span className="text-violet-300 font-semibold">{activeDataset.name}</span> is indexed. 
+                                        Ask a business question in the console above to generate your first executive synthesis.
                                     </p>
-                                </div>
-                            </section>
-                        ) : (
-                            <ExecutiveLanding
-                                activeDataset={activeDataset}
-                                insights={insights}
-                                loadingInsights={loadingInsights}
-                                promptCards={DEFAULT_PROMPTS}
-                                onRunPrompt={(prompt) => void submitQuery(prompt)}
-                                onOpenUpload={() => setNeedsUpload(true)}
-                            />
-                        )}
+                                    <div className="mt-10 flex flex-wrap justify-center gap-4">
+                                        {activeDataset.examplePrompts.map(p => (
+                                            <button key={p} onClick={() => void submitQuery(p)}
+                                                className="nv-pill rounded-full px-5 py-2.5 text-xs font-semibold hover:bg-violet-500/20 transition-all">
+                                                {p}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </motion.section>
+                            ) : (
+                                <ExecutiveLanding key="landing" activeDataset={activeDataset} insights={insights} loadingInsights={loadingInsights}
+                                    promptCards={DEFAULT_PROMPTS} onRunPrompt={p => void submitQuery(p)} onOpenUpload={() => setNeedsUpload(true)} />
+                            )}
                         </AnimatePresence>
                     </main>
                 </div>

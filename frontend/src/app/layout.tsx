@@ -1,21 +1,22 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Manrope } from "next/font/google";
+import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const manrope = Manrope({
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   variable: "--font-display",
+  weight: ["300", "400", "500", "600", "700"],
 });
 
-const ibmPlexMono = IBM_Plex_Mono({
+const jetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   variable: "--font-mono-ui",
 });
 
 export const metadata: Metadata = {
-  title: "Lumina | Ambient Intelligence",
-  description: "Turn natural language into interactive data dashboards",
+  title: "Lumina | Neural Intelligence Platform",
+  description: "Transform raw data into executive-grade dashboards with AI-powered natural language queries",
 };
 
 export default function RootLayout({
@@ -25,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${manrope.variable} ${ibmPlexMono.variable} min-h-screen antialiased bg-background text-foreground selection:bg-primary/30`}>
+      <body className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} min-h-screen antialiased bg-background text-foreground selection:bg-violet-500/30 selection:text-violet-100`}>
         {children}
       </body>
     </html>

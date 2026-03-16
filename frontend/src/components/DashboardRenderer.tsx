@@ -4,14 +4,14 @@ import {
     XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, AreaChart, Area, Treemap
 } from "recharts";
 
-// Premium modern SaaS BI color palette
+// ── Neural Void Palette ──
 const COLORS = [
-    '#3b82f6', // Primary: Blue
-    '#10b981', // Secondary: Emerald
-    '#8b5cf6', // Tertiary: Purple
-    '#f59e0b', // Amber
-    '#ec4899', // Pink
-    '#06b6d4'  // Cyan
+    '#8b5cf6', // Violet
+    '#06b6d4', // Cyan
+    '#c026d3', // Fuchsia
+    '#10b981', // Emerald
+    '#f43f5e', // Rose
+    '#fbbf24'  // Amber
 ];
 
 type ChartRow = Record<string, string | number | boolean | null | undefined>;
@@ -66,12 +66,8 @@ const compactFormatter = new Intl.NumberFormat("en-US", {
 
 function detectFormat(key?: string) {
     const label = (key || "").toLowerCase();
-    if (/(percent|pct|rate|ratio|share|conversion)/.test(label)) {
-        return "percent";
-    }
-    if (/(revenue|usd|amount|sales|price|cost|profit|income|mrr|arr)/.test(label)) {
-        return "currency";
-    }
+    if (/(percent|pct|rate|ratio|share|conversion)/.test(label)) return "percent";
+    if (/(revenue|usd|amount|sales|price|cost|profit|income|mrr|arr)/.test(label)) return "currency";
     return "number";
 }
 
@@ -154,22 +150,16 @@ function profileColumns(data: ChartRow[]) {
 
 function deriveRenderableConfig(data: ChartRow[], config: ChartConfig): ChartConfig {
     const { columns, numericColumns, dateColumns, categoricalColumns } = profileColumns(data);
-    if (columns.length === 0) {
-        return config;
-    }
+    if (columns.length === 0) return config;
 
     let type = config.type === "multi" ? "multi_line" : config.type;
     let xAxis = columns.includes(config.xAxis) ? config.xAxis : "";
     let yAxis = columns.includes(config.yAxis) ? config.yAxis : "";
 
     if (!xAxis) {
-        if (type === "line" && dateColumns.length > 0) {
-            xAxis = dateColumns[0];
-        } else if (categoricalColumns.length > 0) {
-            xAxis = categoricalColumns[0];
-        } else {
-            xAxis = columns[0];
-        }
+        if (type === "line" && dateColumns.length > 0) xAxis = dateColumns[0];
+        else if (categoricalColumns.length > 0) xAxis = categoricalColumns[0];
+        else xAxis = columns[0];
     }
 
     if (!yAxis) {
@@ -178,43 +168,28 @@ function deriveRenderableConfig(data: ChartRow[], config: ChartConfig): ChartCon
     }
 
     if (type === "scatter" && (!numericColumns.includes(xAxis) || !numericColumns.includes(yAxis))) {
-        if (numericColumns.length >= 2) {
-            xAxis = numericColumns[0];
-            yAxis = numericColumns[1];
-        } else {
-            type = "bar";
-        }
+        if (numericColumns.length >= 2) { xAxis = numericColumns[0]; yAxis = numericColumns[1]; }
+        else type = "bar";
     }
 
     if ((type === "line" || type === "area" || type === "multi_line") && !(dateColumns.includes(xAxis) || xAxis.toLowerCase().includes("date") || xAxis.toLowerCase().includes("time"))) {
         type = type === "multi_line" ? "stacked_bar" : "bar";
     }
 
-    if (type === "stacked_bar" && numericColumns.length === 0) {
-        type = "bar";
-    }
-
-    if (type === "pie" && data.length > 6) {
-        type = "treemap";
-    }
+    if (type === "stacked_bar" && numericColumns.length === 0) type = "bar";
+    if (type === "pie" && data.length > 6) type = "treemap";
 
     if (!numericColumns.includes(yAxis) && type !== "table" && type !== "treemap") {
         const numericCandidate = numericColumns.find((column) => column !== xAxis);
-        if (numericCandidate) {
-            yAxis = numericCandidate;
-        } else {
-            type = "table";
-        }
+        if (numericCandidate) yAxis = numericCandidate;
+        else type = "table";
     }
 
     return { type, xAxis, yAxis };
 }
 
-function buildSeriesData(
-    data: ChartRow[],
-    renderConfig: ChartConfig,
-) {
-    const { columns, numericColumns, categoricalColumns } = profileColumns(data);
+function buildSeriesData(data: ChartRow[], renderConfig: ChartConfig) {
+    const { numericColumns, categoricalColumns } = profileColumns(data);
     const type = renderConfig.type;
     const xAxis = renderConfig.xAxis;
 
@@ -234,70 +209,54 @@ function buildSeriesData(
                 const seriesValRaw = row[seriesDimension];
                 if (seriesValRaw === null || seriesValRaw === undefined) return;
                 const seriesVal = String(seriesValRaw);
-                if (!seriesOrder.includes(seriesVal)) {
-                    seriesOrder.push(seriesVal);
-                }
+                if (!seriesOrder.includes(seriesVal)) seriesOrder.push(seriesVal);
 
-                const key = String(xVal);
-                const bucket = pivot.get(key) || { [xAxis]: xVal };
-                const numericValue = coerceNumber(row[valueKey]);
-                if (numericValue !== null) {
-                    bucket[seriesVal] = numericValue;
-                } else if (type === "stacked_bar") {
-                    bucket[seriesVal] = 0;
-                }
-                pivot.set(key, bucket);
+                const bucket = pivot.get(String(xVal)) || { [xAxis]: xVal };
+                bucket[seriesVal] = coerceNumber(row[valueKey]) ?? (type === "stacked_bar" ? 0 : null);
+                pivot.set(String(xVal), bucket);
             });
-
             seriesData = Array.from(pivot.values());
             seriesKeys = seriesOrder;
         }
     }
-
-    const MAX_SERIES = 8;
-    if (seriesKeys.length > MAX_SERIES) {
-        seriesKeys = seriesKeys.slice(0, MAX_SERIES);
-    }
-
-    return { seriesData, seriesKeys };
+    return { seriesData, seriesKeys: seriesKeys.slice(0, 8) };
 }
 
-// Custom Glassmorphic Tooltip - Premium SaaS BI style
+// ── Neural Void Tooltip ──
 const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
         return (
-            <div className="rounded-lg border border-slate-700 bg-slate-900/80 p-3 text-sm text-slate-200 shadow-xl backdrop-blur-md">
-                <p className="mb-2 text-xs font-semibold tracking-wider text-slate-400">
-                    {typeof label === "string" || typeof label === "number" ? label : "Details"}
+            <div className="rounded-xl border border-violet-500/20 bg-[#090714]/90 p-3.5 text-xs shadow-[0_10px_40px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                <p className="mb-2 font-bold tracking-[0.1em] text-violet-400 uppercase">
+                    {typeof label === "string" || typeof label === "number" ? label : "Data Point"}
                 </p>
-                {payload.map((entry: any, index: number) => (
-                    <div key={`item-${index}`} className="flex items-center gap-3 py-1">
-                        <div
-                            className="h-2.5 w-2.5 flex-shrink-0 rounded-full shadow-[0_0_8px_var(--color)]"
-                            style={{ backgroundColor: entry.color || entry.fill || COLORS[0], "--color": entry.color || entry.fill || COLORS[0] } as React.CSSProperties}
-                        />
-                        <span className="font-medium">{entry.name}:</span>
-                        <span className="font-bold text-white">{formatValue(entry.value, entry.name)}</span>
-                    </div>
-                ))}
+                <div className="space-y-1.5">
+                    {payload.map((entry: any, index: number) => (
+                        <div key={`item-${index}`} className="flex items-center gap-3">
+                            <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: entry.color || entry.fill || COLORS[0], boxShadow: `0 0 8px ${entry.color || entry.fill || COLORS[0]}` }} />
+                            <span className="font-medium text-slate-400">{formatKeyLabel(entry.name)}:</span>
+                            <span className="font-bold text-white">{formatValue(entry.value, entry.name)}</span>
+                        </div>
+                    ))}
+                </div>
             </div>
         );
     }
     return null;
 };
 
-// Custom Legend
+// ── Neural Void Legend ──
 const renderLegend = (props: any) => {
     const { payload } = props;
     return (
-        <ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 pt-4">
+        <ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 pt-6">
             {payload.map((entry: any, index: number) => (
-                <li key={`item-${index}`} className="flex items-center gap-2">
-                    <div
-                        className="h-2.5 w-2.5 rounded-full shadow-[0_0_8px_var(--color)]"
-                        style={{ backgroundColor: entry.color, "--color": entry.color } as React.CSSProperties}
-                    />
-                    <span className="text-xs font-medium tracking-wide text-slate-400">{formatKeyLabel(entry.value)}</span>
+                <li key={`item-${index}`} className="flex items-center gap-2 group cursor-default">
+                    <div className="h-1.5 w-1.5 rounded-full transition-transform group-hover:scale-125"
+                        style={{ backgroundColor: entry.color, boxShadow: `0 0 8px ${entry.color}` }} />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#7c6fa0] group-hover:text-violet-300 transition-colors">
+                        {formatKeyLabel(entry.value)}
+                    </span>
                 </li>
             ))}
         </ul>
@@ -305,13 +264,25 @@ const renderLegend = (props: any) => {
 };
 
 export default function DashboardRenderer({ data, config }: { data: ChartRow[], config: ChartConfig }) {
-    if (!data || data.length === 0) return <div className="text-muted-foreground p-8 text-center bg-background/50 rounded-xl border border-dashed border-border">No data available to render chart.</div>;
+    if (!data || data.length === 0) return <div className="text-slate-500 p-12 text-center rounded-[2rem] border-2 border-dashed border-violet-500/10 bg-violet-500/5">Source empty or unreachable.</div>;
+    
     const renderConfig = deriveRenderableConfig(data, config);
     const { seriesData, seriesKeys } = buildSeriesData(data, renderConfig);
     const chartData = sortChartData(data, renderConfig);
     const sortedSeriesData = sortChartData(seriesData, { ...renderConfig, type: "line" });
+    
     const primaryColor = COLORS[0];
-    const secondaryColor = COLORS[1];
+    const gridColor = "rgba(139, 92, 246, 0.05)";
+    const tickColor = "#4d4270";
+
+    const commonAxisProps = {
+        stroke: tickColor,
+        fontSize: 10,
+        fontWeight: 600,
+        tickLine: false,
+        axisLine: false,
+        tickMargin: 12,
+    };
 
     const renderChart = () => {
         switch (renderConfig.type.toLowerCase()) {
@@ -319,222 +290,58 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
             case 'area':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                            {renderConfig.type === "area" && (
-                                <defs>
-                                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor={primaryColor} stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor={primaryColor} stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                            )}
-                            <CartesianGrid strokeDasharray="4 4" stroke="#1e293b" vertical={false} />
-                            <XAxis 
-                                dataKey={renderConfig.xAxis} 
-                                stroke="#64748b" 
-                                fontSize={12} 
-                                tickLine={false} 
-                                axisLine={false}
-                                tickMargin={12}
-                                minTickGap={30}
-                                tickFormatter={(value) => {
-                                    const parsed = coerceDate(value);
-                                    if (parsed) {
-                                        return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(parsed);
-                                    }
-                                    return String(value);
-                                }}
-                            />
-                            <YAxis 
-                                stroke="#64748b" 
-                                fontSize={12} 
-                                tickLine={false} 
-                                axisLine={false} 
-                                tickMargin={12}
-                                domain={['auto', 'auto']}
-                                tickFormatter={(value) => formatValue(value, renderConfig.yAxis, true)}
-                            />
-                            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <defs>
+                                <linearGradient id="nvGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor={primaryColor} stopOpacity={0.25} />
+                                    <stop offset="95%" stopColor={primaryColor} stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                            <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis} tickFormatter={(v) => {
+                                const d = coerceDate(v);
+                                return d ? new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(d) : String(v);
+                            }} />
+                            <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
+                            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(139,92,246,0.2)', strokeWidth: 1 }} />
                             <Legend content={renderLegend} />
-                            {renderConfig.type === "area" ? (
-                                <Area 
-                                    type="monotone" 
-                                    dataKey={renderConfig.yAxis} 
-                                    stroke={primaryColor} 
-                                    strokeWidth={2}
-                                    fillOpacity={1} 
-                                    fill="url(#chartGradient)" 
-                                    activeDot={{ r: 6, stroke: primaryColor, strokeWidth: 2, fill: '#0f172a' }} 
-                                    animationDuration={1200} 
-                                />
-                            ) : (
-                                <Line
-                                    type="monotone"
-                                    dataKey={renderConfig.yAxis}
-                                    stroke={primaryColor}
-                                    strokeWidth={2}
-                                    dot={false}
-                                    activeDot={{ r: 5 }}
-                                    animationDuration={1200}
-                                />
-                            )}
+                            <Area type="monotone" dataKey={renderConfig.yAxis} stroke={primaryColor} strokeWidth={2.5}
+                                fillOpacity={1} fill="url(#nvGradient)" activeDot={{ r: 6, stroke: primaryColor, strokeWidth: 2, fill: '#04030a' }}
+                                animationDuration={1500} />
                         </AreaChart>
                     </ResponsiveContainer>
                 );
             case 'multi_line':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={sortedSeriesData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="4 4" stroke="#1e293b" vertical={false} />
-                            <XAxis
-                                dataKey={renderConfig.xAxis}
-                                stroke="#64748b"
-                                fontSize={12}
-                                tickLine={false}
-                                axisLine={false}
-                                tickMargin={12}
-                                minTickGap={30}
-                                tickFormatter={(value) => {
-                                    const parsed = coerceDate(value);
-                                    if (parsed) {
-                                        return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(parsed);
-                                    }
-                                    return String(value);
-                                }}
-                            />
-                            <YAxis
-                                stroke="#64748b"
-                                fontSize={12}
-                                tickLine={false}
-                                axisLine={false}
-                                tickMargin={12}
-                                domain={['auto', 'auto']}
-                                tickFormatter={(value) => formatValue(value, renderConfig.yAxis, true)}
-                            />
-                            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                        <LineChart data={sortedSeriesData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                            <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis} />
+                            <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
+                            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.05)' }} />
                             <Legend content={renderLegend} />
-                            {seriesKeys.length <= 1 ? (
-                                <Line
-                                    type="monotone"
-                                    dataKey={seriesKeys[0] || renderConfig.yAxis}
-                                    stroke={primaryColor}
-                                    strokeWidth={2}
-                                    dot={false}
-                                    activeDot={{ r: 5 }}
-                                    animationDuration={1200}
-                                />
-                            ) : (
-                                seriesKeys.map((key, index) => (
-                                    <Line
-                                        key={key}
-                                        type="monotone"
-                                        dataKey={key}
-                                        name={formatKeyLabel(key)}
-                                        stroke={COLORS[index % COLORS.length]}
-                                        strokeWidth={2}
-                                        dot={false}
-                                        activeDot={{ r: 5 }}
-                                        animationDuration={1200}
-                                    />
-                                ))
-                            )}
+                            {seriesKeys.map((key, i) => (
+                                <Line key={key} type="monotone" dataKey={key} name={key} stroke={COLORS[i % COLORS.length]}
+                                    strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} animationDuration={1500} />
+                            ))}
                         </LineChart>
                     </ResponsiveContainer>
                 );
             case 'bar':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="4 4" stroke="#1e293b" vertical={false} />
-                            <XAxis 
-                                dataKey={renderConfig.xAxis} 
-                                stroke="#64748b" 
-                                fontSize={12} 
-                                tickLine={false} 
-                                axisLine={false}
-                                tickMargin={12}
-                                minTickGap={30}
-                                tickFormatter={(value) => {
-                                    const parsed = coerceDate(value);
-                                    if (parsed) {
-                                        return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(parsed);
-                                    }
-                                    return String(value);
-                                }}
-                            />
-                            <YAxis 
-                                stroke="#64748b" 
-                                fontSize={12} 
-                                tickLine={false} 
-                                axisLine={false}
-                                tickMargin={12}
-                                domain={[(dataMin: number) => {
-                                    const diff = dataMin * 0.05;
-                                    return Math.max(0, Math.floor(dataMin - diff));
-                                }, 'auto']}
-                                tickFormatter={(value) => formatValue(value, renderConfig.yAxis, true)}
-                            />
-                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)', rx: 6 }} />
+                        <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                            <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis} />
+                            <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
+                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(139,92,246,0.03)', rx: 8 }} />
                             <Legend content={renderLegend} />
-                            <Bar dataKey={renderConfig.yAxis} fill={primaryColor} radius={[4, 4, 0, 0]} animationDuration={1200} maxBarSize={40}>
-                                {chartData.map((entry, index) => {
-                                    const rawValue = coerceNumber(entry[renderConfig.yAxis]);
-                                    const fill = rawValue !== null && rawValue < 0 ? "#f87171" : COLORS[index % COLORS.length];
-                                    return (
-                                        <Cell key={`cell-${index}`} fill={fill} className="cursor-pointer transition-opacity hover:opacity-80" />
-                                    );
+                            <Bar dataKey={renderConfig.yAxis} radius={[4, 4, 0, 0]} animationDuration={1500} maxBarSize={32}>
+                                {chartData.map((e, idx) => {
+                                    const val = coerceNumber(e[renderConfig.yAxis]);
+                                    return <Cell key={idx} fill={val !== null && val < 0 ? "#f43f5e" : COLORS[idx % COLORS.length]} fillOpacity={0.8} />;
                                 })}
                             </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                );
-            case 'stacked_bar':
-                return (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={sortedSeriesData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="4 4" stroke="#1e293b" vertical={false} />
-                            <XAxis
-                                dataKey={renderConfig.xAxis}
-                                stroke="#64748b"
-                                fontSize={12}
-                                tickLine={false}
-                                axisLine={false}
-                                tickMargin={12}
-                                minTickGap={30}
-                                tickFormatter={(value) => {
-                                    const parsed = coerceDate(value);
-                                    if (parsed) {
-                                        return new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(parsed);
-                                    }
-                                    return String(value);
-                                }}
-                            />
-                            <YAxis
-                                stroke="#64748b"
-                                fontSize={12}
-                                tickLine={false}
-                                axisLine={false}
-                                tickMargin={12}
-                                domain={[(dataMin: number) => {
-                                    const diff = dataMin * 0.05;
-                                    return Math.max(0, Math.floor(dataMin - diff));
-                                }, 'auto']}
-                                tickFormatter={(value) => formatValue(value, renderConfig.yAxis, true)}
-                            />
-                            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)', rx: 6 }} />
-                            <Legend content={renderLegend} />
-                            {seriesKeys.map((key, index) => (
-                                <Bar
-                                    key={key}
-                                    dataKey={key}
-                                    name={key.replace(/_/g, " ")}
-                                    stackId="stack"
-                                    fill={COLORS[index % COLORS.length]}
-                                    radius={index === seriesKeys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                                    maxBarSize={40}
-                                    animationDuration={1200}
-                                />
-                            ))}
                         </BarChart>
                     </ResponsiveContainer>
                 );
@@ -544,124 +351,41 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
                         <PieChart>
                             <Tooltip content={<CustomTooltip />} />
                             <Legend content={renderLegend} />
-                            <Pie
-                                data={data}
-                                cx="50%"
-                                cy="50%"
-                                labelLine={false}
-                                outerRadius={100}
-                                innerRadius={70}
-                                paddingAngle={4}
-                                stroke="none"
-                                dataKey={renderConfig.yAxis}
-                                nameKey={renderConfig.xAxis}
-                                animationDuration={1200}
-                                className="outline-none focus:outline-none"
-                            >
-                                {data.map((entry, index) => (
-                                    <Cell 
-                                        key={`cell-${index}`} 
-                                        fill={COLORS[index % COLORS.length]} 
-                                        className="cursor-pointer outline-none transition-all duration-300 hover:scale-[1.03] hover:opacity-90 focus:outline-none" 
-                                    />
-                                ))}
+                            <Pie data={data} cx="50%" cy="45%" labelLine={false} outerRadius="85%" innerRadius="65%" paddingAngle={5} stroke="none"
+                                dataKey={renderConfig.yAxis} nameKey={renderConfig.xAxis} animationDuration={1500}>
+                                {data.map((_, idx) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} fillOpacity={0.85} className="outline-none" />)}
                             </Pie>
                         </PieChart>
                     </ResponsiveContainer>
                 );
-            case 'treemap': {
-                const treemapData = chartData.map((row) => ({
-                    name: String(row[renderConfig.xAxis] ?? "Unknown"),
-                    size: coerceNumber(row[renderConfig.yAxis]) ?? 0,
-                }));
+            case 'treemap':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                        <Treemap
-                            data={treemapData}
-                            dataKey="size"
-                            stroke="#0f172a"
-                            fill={primaryColor}
-                            aspectRatio={4 / 3}
-                            content={({ x, y, width, height, name, index, value }) => {
-                                const color = COLORS[index % COLORS.length];
-                                const label = typeof name === "string" ? name : "Segment";
-                                return (
-                                    <g>
-                                        <rect x={x} y={y} width={width} height={height} fill={color} fillOpacity={0.85} stroke="#0f172a" />
-                                        {width > 70 && height > 40 && (
-                                            <>
-                                                <text x={x + 8} y={y + 22} fill="#f8fafc" fontSize={12} fontWeight={600}>
-                                                    {label}
-                                                </text>
-                                                <text x={x + 8} y={y + 40} fill="#e2e8f0" fontSize={11}>
-                                                    {formatValue(value, renderConfig.yAxis, true)}
-                                                </text>
-                                            </>
-                                        )}
-                                    </g>
-                                );
-                            }}
-                        />
-                    </ResponsiveContainer>
-                );
-            }
-            case 'scatter':
-                return (
-                    <ResponsiveContainer width="100%" height="100%">
-                        <ScatterChart margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
-                            <CartesianGrid strokeDasharray="4 4" stroke="#1e293b" />
-                            <XAxis 
-                                type="number" 
-                                dataKey={renderConfig.xAxis} 
-                                name={renderConfig.xAxis} 
-                                stroke="#64748b" 
-                                fontSize={12} 
-                                tickLine={false} 
-                                axisLine={false} 
-                                tickMargin={12}
-                                tickFormatter={(value) => formatValue(value, renderConfig.xAxis, true)}
-                            />
-                            <YAxis 
-                                type="number" 
-                                dataKey={renderConfig.yAxis} 
-                                name={renderConfig.yAxis} 
-                                stroke="#64748b" 
-                                fontSize={12} 
-                                tickLine={false} 
-                                axisLine={false} 
-                                tickMargin={12}
-                                tickFormatter={(value) => formatValue(value, renderConfig.yAxis, true)}
-                            />
-                            <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '4 4', stroke: 'rgba(255,255,255,0.1)' }} />
-                            <Scatter name="Data" data={chartData} fill={primaryColor} animationDuration={1200}>
-                                {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} className="opacity-80 transition-opacity hover:opacity-100" />
-                                ))}
-                            </Scatter>
-                        </ScatterChart>
+                        <Treemap data={chartData.map(r => ({ name: String(r[renderConfig.xAxis] || "Unknown"), size: coerceNumber(r[renderConfig.yAxis]) || 0 }))}
+                            dataKey="size" stroke="#04030a" fill={primaryColor} aspectRatio={4/3}
+                            content={({ x, y, width, height, index, name, value }: any) => (
+                                <g>
+                                    <rect x={x} y={y} width={width} height={height} fill={COLORS[index % COLORS.length]} fillOpacity={0.8} stroke="#04030a" />
+                                    {width > 60 && height > 30 && (
+                                        <text x={x + 6} y={y + 18} fill="white" fontSize={11} fontWeight={700} className="uppercase tracking-wider">
+                                            {String(name).slice(0, 12)}
+                                        </text>
+                                    )}
+                                </g>
+                            )} />
                     </ResponsiveContainer>
                 );
             default:
                 return (
-                    <div className="h-full w-full overflow-auto rounded-xl border border-white/10 bg-white/5 shadow-inner">
-                        <table className="w-full text-left text-sm text-slate-300">
-                            <thead className="sticky top-0 bg-slate-900/90 text-xs font-semibold uppercase tracking-wider text-slate-400 backdrop-blur-md">
-                                <tr>
-                                    {Object.keys(data[0] || {}).map((key) => (
-                                        <th key={key} className="border-b border-white/10 px-6 py-4">
-                                            {key.replace(/_/g, " ")}
-                                        </th>
-                                    ))}
-                                </tr>
+                    <div className="h-full w-full overflow-auto rounded-2xl border border-violet-500/10 bg-violet-500/5">
+                        <table className="w-full text-left font-mono text-[11px] text-slate-400">
+                            <thead className="sticky top-0 bg-[#090714] text-violet-400 uppercase tracking-widest border-b border-violet-500/10">
+                                <tr>{Object.keys(data[0] || {}).map(k => <th key={k} className="px-6 py-3 font-bold">{k.replace(/_/g, " ")}</th>)}</tr>
                             </thead>
-                            <tbody className="divide-y divide-white/5">
-                                {data.map((row, i) => (
-                                    <tr key={i} className="transition-colors hover:bg-white/5">
-                                        {Object.values(row).map((val, j) => (
-                                            <td key={j} className="whitespace-nowrap px-6 py-4 font-medium">
-                                                {val !== null && val !== undefined ? val.toString() : "-"}
-                                            </td>
-                                        ))}
+                            <tbody className="divide-y divide-violet-500/5">
+                                {data.map((r, i) => (
+                                    <tr key={i} className="hover:bg-violet-500/5 transition-colors">
+                                        {Object.values(r).map((v, j) => <td key={j} className="px-6 py-3 text-white/90">{v?.toString() || "-"}</td>)}
                                     </tr>
                                 ))}
                             </tbody>
@@ -671,9 +395,5 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
         }
     };
 
-    return (
-        <div className="relative z-10 h-full w-full animate-in fade-in duration-700 ease-out">
-            {renderChart()}
-        </div>
-    );
+    return <div className="h-full w-full">{renderChart()}</div>;
 }
