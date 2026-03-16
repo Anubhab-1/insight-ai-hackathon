@@ -2106,7 +2106,7 @@ async def upload_csv(file: UploadFile = File(...)):
         status_code, detail = classify_llm_error(e)
         raise HTTPException(status_code=status_code, detail=detail)
 
-@app.post("/api/query", response_model=QueryResponse)
+@app.post("/api/query")
 async def query_data(request: QueryRequest):
     if not request.query or not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty. Please provide a question.")
@@ -2122,7 +2122,8 @@ async def query_data(request: QueryRequest):
         res = await process_dashboard_query(request.query, request.history)
         print(f"Query processed successfully: {res.get('dashboard_title')}")
 
-        return {
+        # Construct response manually without response_model for robustness
+        return JSONResponse(status_code=200, content={
             "dashboard_title": str(res.get("dashboard_title", request.query)),
             "dashboard_subtitle": res.get("dashboard_subtitle"),
             "executive_summary": str(res.get("executive_summary", "")),
@@ -2133,8 +2134,13 @@ async def query_data(request: QueryRequest):
             "confidence": res.get("confidence"),
             "cannot_answer": res.get("cannot_answer", False),
             "cannot_answer_reason": res.get("cannot_answer_reason")
-        }
+        })
     except Exception as e:
-        print(f"Error: {e}")
-        status_code, detail = classify_llm_error(e)
-        raise HTTPException(status_code=status_code, detail=detail)
+        print(f"CRITICAL QUERY ERROR: {e}")
+        traceback.print_exc()
+        try:
+            status_code, detail = classify_llm_error(e)
+        except:
+            status_code, detail = 500, str(e) or "An unknown backend error occurred during query processing."
+            
+        return JSONResponse(status_code=status_code, content={"detail": detail})
