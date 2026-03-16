@@ -58,13 +58,27 @@ interface HistoryEntry {
 }
 
 function toDatasetState(payload: DatasetHealth | UploadResponse): DatasetState {
+    const columns = Array.isArray(payload.columns) ? payload.columns : [];
+    const examplePrompts = Array.isArray(payload.example_prompts) ? payload.example_prompts : [];
+    const schema = payload.schema || "Schema unavailable.";
+
     return {
         name: "table" in payload ? payload.table : payload.table_name,
         rows: payload.row_count,
-        columns: payload.columns,
-        schema: payload.schema,
-        examplePrompts: payload.example_prompts,
+        columns,
+        schema,
+        examplePrompts,
     };
+}
+
+function safeJsonParse<T>(text: string, context: string): T | null {
+    try {
+        return JSON.parse(text) as T;
+    } catch (error) {
+        console.error(`${context} JSON parse failed:`, error);
+        console.log("Raw response was:", text);
+        return null;
+    }
 }
 
 // Global declaration for the SpeechRecognition API interface
@@ -77,12 +91,12 @@ declare global {
 }
 
 export default function Dashboard() {
-    const [needsUpload, setNeedsUpload] = useState(false);
+    const [needsUpload, setNeedsUpload] = useState(true);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [placeholderIdx, setPlaceholderIdx] = useState(0);
     const [insights, setInsights] = useState<InsightCard[]>([]);
-    const [loadingInsights, setLoadingInsights] = useState(true);
+    const [loadingInsights, setLoadingInsights] = useState(false);
     const [activeDataset, setActiveDataset] = useState<DatasetState | null>(null);
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [loadingQuery, setLoadingQuery] = useState(false);
@@ -107,10 +121,7 @@ export default function Dashboard() {
         return () => clearInterval(interval);
     }, []);
 
-    useEffect(() => {
-        void loadDataset();
-        void fetchInsights();
-    }, []);
+    // No auto-load on mount — always start on the upload screen.
 
     async function loadDataset() {
         try {
@@ -125,19 +136,17 @@ export default function Dashboard() {
                 return;
             }
 
-            try {
-                const data = JSON.parse(text) as DatasetHealth;
-                if (!data.has_data) {
-                    setActiveDataset(null);
-                    return;
-                }
-                setNeedsUpload(false);
-                setActiveDataset(toDatasetState(data));
-            } catch (err) {
-                console.error("Failed to parse health JSON:", err);
-                console.log("Raw response was:", text);
+            const data = safeJsonParse<DatasetHealth>(text, "Health check");
+            if (!data) {
                 setActiveDataset(null);
+                return;
             }
+            if (!data.has_data) {
+                setActiveDataset(null);
+                return;
+            }
+            setNeedsUpload(false);
+            setActiveDataset(toDatasetState(data));
         } catch (error) {
             console.error("Network error during health check:", error);
             setActiveDataset(null);
@@ -158,14 +167,8 @@ export default function Dashboard() {
                 return;
             }
 
-            try {
-                const data = JSON.parse(text);
-                setInsights(data.insights || []);
-            } catch (err) {
-                console.error("Failed to parse insights JSON:", err);
-                console.log("Raw response was:", text);
-                setInsights([]);
-            }
+            const data = safeJsonParse<{ insights?: InsightCard[] }>(text, "Insights");
+            setInsights(data?.insights || []);
         } catch (error) {
             console.error("Error fetching insights:", error);
             setInsights([]);
@@ -293,7 +296,10 @@ export default function Dashboard() {
                 throw new Error(errorMessage);
             }
 
-            const data = JSON.parse(text);
+            const data = safeJsonParse<QueryResponse>(text, "Query response");
+            if (!data) {
+                throw new Error("Backend returned invalid JSON. Check the server logs.");
+            }
 
             setHistory((prev) => {
                 const nextHistory = [...prev];
@@ -342,11 +348,12 @@ export default function Dashboard() {
         setActiveViewIndex(null);
         setOpenSqlWidgetId(null);
         setInsights([]);
+        void fetchInsights();
     }
 
     const activeItem = activeViewIndex !== null ? history[activeViewIndex] : null;
     const showBlankUploadedState = Boolean(activeDataset) && history.length === 0;
-    const quickPrompts = activeDataset?.examplePrompts.length
+    const quickPrompts = activeDataset?.examplePrompts?.length
         ? activeDataset.examplePrompts
         : [];
 

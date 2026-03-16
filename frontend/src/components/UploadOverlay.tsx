@@ -49,8 +49,23 @@ export default function UploadOverlay({ onUploadSuccess }: { onUploadSuccess: (d
                 method: "POST",
                 body: formData,
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || "Upload failed");
+            const text = await res.text();
+            let data: UploadResponse | null = null;
+            try {
+                data = JSON.parse(text) as UploadResponse;
+            } catch (parseError) {
+                console.error("Upload JSON parse failed:", parseError);
+                console.log("Raw response was:", text);
+            }
+
+            if (!res.ok) {
+                const detail = (data as any)?.detail || (text ? text : "Upload failed");
+                throw new Error(detail);
+            }
+
+            if (!data) {
+                throw new Error("Upload returned invalid JSON. Check the backend logs.");
+            }
 
             onUploadSuccess(data);
         } catch (err) {

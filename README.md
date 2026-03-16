@@ -26,9 +26,9 @@ InsightAI is a conversational BI dashboard for CSV datasets. A user asks a quest
 4. A second LLM pass writes the executive summary, recommendations, and widget insights from real query results.
 5. `frontend/src/components` renders the dashboard and export actions.
 
-## Demo Dataset
+## Dataset Uploads
 
-The default YouTube analytics dataset lives at [backend/youtube_data.csv](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/backend/youtube_data.csv). It is intentionally larger than the original seed so demo prompts have enough variation for dashboards, comparisons, and filtered exports.
+InsightAI does not bundle a default dataset. Upload a CSV through the UI to begin analysis and generate dashboards.
 
 ## Local Setup
 

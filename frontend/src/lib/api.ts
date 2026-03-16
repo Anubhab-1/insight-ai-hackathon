@@ -8,8 +8,17 @@ export function getApiBaseUrl() {
     const configured = process.env.NEXT_PUBLIC_API_URL?.trim() || process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
 
     if (typeof window !== "undefined") {
-        // When running in the browser, hit the Next.js API proxy which rewrites to the configured backend
-        // This entirely eliminates CORS issues
+        if (configured) {
+            return trimTrailingSlash(configured);
+        }
+
+        const host = window.location.hostname;
+        if (host === "localhost" || host === "127.0.0.1") {
+            // Avoid Next.js proxy body limits for large CSV uploads during local dev.
+            return DEFAULT_LOCAL_API_BASE_URL;
+        }
+
+        // Fall back to same-origin (useful behind reverse proxies).
         return "";
     }
 

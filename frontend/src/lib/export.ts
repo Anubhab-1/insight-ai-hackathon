@@ -50,8 +50,15 @@ export async function downloadWidgetCsv(widget: DashboardWidget) {
     });
 
     if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail || "Failed to export CSV.");
+        const text = await response.text();
+        let detail = "Failed to export CSV.";
+        try {
+            const payload = JSON.parse(text) as { detail?: string };
+            if (payload?.detail) detail = payload.detail;
+        } catch {
+            if (text) detail = text;
+        }
+        throw new Error(detail);
     }
 
     const blob = await response.blob();

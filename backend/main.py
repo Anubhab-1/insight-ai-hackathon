@@ -55,6 +55,8 @@ client: Optional[AsyncOpenAI] = None
 
 def _init_client() -> Optional[AsyncOpenAI]:
     """Initialize the OpenAI client with environment configuration."""
+    if os.environ.get("INSIGHTAI_DISABLE_LLM", "").strip().lower() in {"1", "true", "yes"}:
+        return None
     api_key = os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY") or os.environ.get("XAI_API_KEY")
     base_url = os.environ.get("LLM_BASE_URL") or "https://api.groq.com/openai/v1"
     
@@ -66,6 +68,8 @@ def _init_client() -> Optional[AsyncOpenAI]:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global client
+    if should_reset_demo_dataset():
+        reset_dataset_state()
     if client is None:
         client = _init_client()
     try:
@@ -109,13 +113,14 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 DB_NAME = os.path.join(BASE_DIR, "insightai.db")
-VALID_CHART_TYPES = {"line", "bar", "pie", "scatter", "table"}
+VALID_CHART_TYPES = {"line", "area", "bar", "stacked_bar", "pie", "treemap", "scatter", "multi_line", "table"}
 VALID_METRIC_FORMATS = {"number", "percent", "currency", "text"}
 FORBIDDEN_SQL_PATTERN = re.compile(r"\b(insert|update|delete|drop|alter|create|replace|truncate|attach|detach|pragma|vacuum)\b", re.IGNORECASE)
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 NON_ALPHANUMERIC_PATTERN = re.compile(r"[^a-z0-9]+")
 BINARY_SIGNATURES = [b"bplist00", b"PK\x03\x04", b"\x89PNG", b"%PDF"]
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB max file size
+DEMO_TABLE_NAMES = {"youtube_analytics", "youtube_data"}
 
 SQL_TEXT_TRANSLATION = str.maketrans(
     {
@@ -169,21 +174,21 @@ def update_schema_info():
     global active_schema, active_table
     if not os.path.exists(DB_NAME):
         active_schema = "No data loaded yet."
+        active_table = None
         return
         
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = cursor.fetchall()
+        tables = [row["name"] for row in cursor.fetchall() if not row["name"].startswith("sqlite_")]
         if not tables:
             active_schema = "No data loaded yet."
+            active_table = None
             return
             
-        table_names = [t['name'] for t in tables]
-        if active_table is None:
-            active_schema = "No data loaded yet."
-            return
+        if active_table not in tables:
+            active_table = tables[0]
             
         cursor.execute(f"PRAGMA table_info({quote_identifier(active_table)})")
         columns = cursor.fetchall()
@@ -194,6 +199,35 @@ def update_schema_info():
     finally:
         conn.close()
 
+
+def should_reset_demo_dataset() -> bool:
+    if os.environ.get("INSIGHTAI_ALLOW_DEMO", "").strip().lower() in {"1", "true", "yes"}:
+        return False
+    if not os.path.exists(DB_NAME):
+        return False
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = [row["name"] for row in cursor.fetchall() if not row["name"].startswith("sqlite_")]
+    finally:
+        conn.close()
+    if not tables:
+        return False
+    return all(table in DEMO_TABLE_NAMES for table in tables)
+
+
+def reset_dataset_state() -> None:
+    global active_table, active_schema
+    active_table = None
+    if os.path.exists(DB_NAME):
+        try:
+            os.remove(DB_NAME)
+        except Exception:
+            pass
+    active_schema = "No data loaded yet."
+    update_schema_info()
+
 update_schema_info()
 
 def preload_youtube_data():
@@ -201,6 +235,72 @@ def preload_youtube_data():
     global active_table
     csv_path = os.path.join(BASE_DIR, "youtube_data.csv")
     if not os.path.exists(csv_path):
+        if os.environ.get("INSIGHTAI_TEST_DATA", "").strip().lower() in {"1", "true", "yes"}:
+            df = pd.DataFrame(
+                [
+                    {
+                        "video_id": "v0001",
+                        "title": "Test Region Insights",
+                        "published_at": "2024-01-01",
+                        "category": "Education",
+                        "language": "English",
+                        "duration_seconds": 540,
+                        "views": 1200,
+                        "likes": 120,
+                        "comments": 30,
+                        "shares": 10,
+                        "sentiment_score": 0.72,
+                        "region": "North America",
+                        "ads_enabled": 1,
+                        "watch_time_hours": 320.5,
+                        "estimated_revenue_usd": 45.2,
+                        "subscribers_gained": 35,
+                    },
+                    {
+                        "video_id": "v0002",
+                        "title": "Test Category Breakdown",
+                        "published_at": "2024-02-01",
+                        "category": "Technology",
+                        "language": "English",
+                        "duration_seconds": 630,
+                        "views": 2400,
+                        "likes": 240,
+                        "comments": 60,
+                        "shares": 22,
+                        "sentiment_score": 0.81,
+                        "region": "Europe",
+                        "ads_enabled": 0,
+                        "watch_time_hours": 610.2,
+                        "estimated_revenue_usd": 88.7,
+                        "subscribers_gained": 80,
+                    },
+                    {
+                        "video_id": "v0003",
+                        "title": "Test Performance Trend",
+                        "published_at": "2024-03-01",
+                        "category": "Business",
+                        "language": "Spanish",
+                        "duration_seconds": 480,
+                        "views": 1800,
+                        "likes": 190,
+                        "comments": 40,
+                        "shares": 18,
+                        "sentiment_score": 0.65,
+                        "region": "Asia",
+                        "ads_enabled": 1,
+                        "watch_time_hours": 410.1,
+                        "estimated_revenue_usd": 62.0,
+                        "subscribers_gained": 52,
+                    },
+                ]
+            )
+            df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(" ", "_")
+            replace_active_dataset(df, "youtube_analytics")
+            active_table = "youtube_analytics"
+            print("Seeded lightweight test dataset for youtube_analytics")
+            update_schema_info()
+            return
+
         print("No youtube_data.csv found - skipping preload")
         return
 
@@ -304,7 +404,7 @@ You have access to a SQLite database with this schema:
 When the user asks a question, respond with ONLY this JSON structure (no markdown, no extra text):
 {
   "sql": "SELECT ...",
-  "chart_type": "bar|line|pie|scatter|multi",
+  "chart_type": "bar|stacked_bar|line|area|multi_line|pie|treemap|scatter|table",
   "x_axis": "column_name",
   "y_axis": "column_name",
   "title": "Chart title",
@@ -322,8 +422,8 @@ When the user asks a question, respond with ONLY this JSON structure (no markdow
 Rules:
 - If the question cannot be answered from the data, set cannot_answer: true and explain why
 - Never hallucinate numbers - only use data from SQL results
-- For time series always use line chart
-- For comparisons across categories always use bar chart  
+- For time series use line or area; use multi_line when multiple metrics are returned
+- For comparisons across categories use bar; use stacked_bar when multiple metrics are returned; use treemap when there are many categories
 - For part-of-whole always use pie chart
 - For correlation between two numeric columns use scatter chart
 - narration must reference ACTUAL numbers from the query result, so generate SQL first
@@ -856,7 +956,7 @@ def execute_select_query(sql: str) -> Tuple[str, List[Dict[str, Any]]]:
         return safe_sql, results
     except Exception as e:
         print(f"SQL Execution Error: {e}")
-        return safe_sql, []
+        raise
     finally:
         conn.close()
 
@@ -939,15 +1039,28 @@ def choose_axes(
 
 def choose_chart_type(rows: List[Dict[str, Any]], requested_chart_type: str, x_axis: str, y_axis: str) -> str:
     columns, numeric_columns, date_columns, _ = classify_result_columns(rows)
-    chart_type = requested_chart_type if requested_chart_type in VALID_CHART_TYPES else ""
+    normalized = "multi_line" if requested_chart_type == "multi" else requested_chart_type
+    chart_type = normalized if normalized in VALID_CHART_TYPES else ""
+    numeric_series = [column for column in numeric_columns if column != x_axis]
+    series_dimensions = [column for column in columns if column not in numeric_columns and column != x_axis]
 
     if chart_type == "pie" and len(rows) > 6:
-        chart_type = "bar"
+        chart_type = "treemap"
 
     if chart_type == "scatter" and not (x_axis in numeric_columns and y_axis in numeric_columns):
         chart_type = ""
 
     if chart_type == "line" and not (x_axis in date_columns or is_dateish_name(x_axis)):
+        chart_type = ""
+
+    if chart_type == "area" and not (x_axis in date_columns or is_dateish_name(x_axis)):
+        chart_type = ""
+
+    if chart_type == "multi_line":
+        if not (x_axis in date_columns or is_dateish_name(x_axis)):
+            chart_type = "stacked_bar" if series_dimensions or numeric_series else ""
+
+    if chart_type == "stacked_bar" and x_axis in numeric_columns:
         chart_type = ""
 
     if chart_type and (chart_type == "table" or (x_axis in columns and y_axis in columns)):
@@ -956,11 +1069,20 @@ def choose_chart_type(rows: List[Dict[str, Any]], requested_chart_type: str, x_a
     if x_axis in numeric_columns and y_axis in numeric_columns and len(rows) <= 50:
         return "scatter"
 
+    if x_axis and y_axis and (x_axis in date_columns or is_dateish_name(x_axis)) and len(numeric_series) >= 2:
+        return "multi_line"
+
     if x_axis and y_axis and (x_axis in date_columns or is_dateish_name(x_axis)):
         return "line"
 
+    if x_axis and y_axis and x_axis not in numeric_columns and len(numeric_series) >= 2:
+        return "stacked_bar"
+
     if x_axis and y_axis and len(rows) <= 6 and x_axis not in numeric_columns:
         return "pie"
+
+    if x_axis and y_axis and x_axis not in numeric_columns and len(rows) > 12:
+        return "treemap"
 
     if x_axis and y_axis:
         return "bar"
@@ -1247,38 +1369,80 @@ async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str
         )
 
     if has_trend and date_column:
-        dimension_sql, time_alias = build_time_bucket_expression(cast(str, date_column))
-        widgets.append(
-            {
-                "id": "metric_trend",
-                "title": f"{format_column_label(primary_metric).title()} Over Time",
-                "chart_type": "line",
-                "sql": (
-                    f"SELECT {time_bucket_sql}, {aggregate}({primary_metric_sql}) AS {metric_alias} "
-                    f"FROM {quote_identifier(active_table)}{where_clause} "
-                    f"GROUP BY {time_alias} ORDER BY {time_alias}"
-                ),
-                "x_axis": time_alias,
-                "y_axis": metric_alias,
-            }
-        )
+        time_bucket_sql, time_alias = build_time_bucket_expression(cast(str, date_column))
+        if len(metrics) > 1:
+            metric_selects = []
+            for metric in cast(Any, list(metrics))[:3]:
+                metric_aggregate = aggregate_for_metric(metric)
+                metric_alias_name = alias_for_metric(metric, metric_aggregate)
+                metric_selects.append(f"{metric_aggregate}({quote_identifier(metric)}) AS {metric_alias_name}")
+            widgets.append(
+                {
+                    "id": "metric_trend",
+                    "title": f"{format_column_label(primary_metric).title()} and {format_column_label(cast(Any, metrics)[1]).title()} Over Time",
+                    "chart_type": "multi_line",
+                    "sql": (
+                        f"SELECT {time_bucket_sql}, {', '.join(metric_selects)} "
+                        f"FROM {quote_identifier(active_table)}{where_clause} "
+                        f"GROUP BY {time_alias} ORDER BY {time_alias}"
+                    ),
+                    "x_axis": time_alias,
+                    "y_axis": metric_alias,
+                }
+            )
+        else:
+            widgets.append(
+                {
+                    "id": "metric_trend",
+                    "title": f"{format_column_label(primary_metric).title()} Over Time",
+                    "chart_type": "area",
+                    "sql": (
+                        f"SELECT {time_bucket_sql}, {aggregate}({primary_metric_sql}) AS {metric_alias} "
+                        f"FROM {quote_identifier(active_table)}{where_clause} "
+                        f"GROUP BY {time_alias} ORDER BY {time_alias}"
+                    ),
+                    "x_axis": time_alias,
+                    "y_axis": metric_alias,
+                }
+            )
 
     if primary_dimension:
         dimension_sql = quote_identifier(primary_dimension)
-        widgets.append(
-            {
-                "id": "primary_dimension_compare",
-                "title": f"{format_column_label(primary_metric).title()} by {format_column_label(primary_dimension).title()}",
-                "chart_type": "bar",
-                "sql": (
-                    f"SELECT {dimension_sql} AS {primary_dimension}, {aggregate}({primary_metric_sql}) AS {metric_alias} "
-                    f"FROM {quote_identifier(active_table)}{where_clause} "
-                    f"GROUP BY {dimension_sql} ORDER BY {metric_alias} DESC LIMIT 12"
-                ),
-                "x_axis": primary_dimension,
-                "y_axis": metric_alias,
-            }
-        )
+        if len(metrics) > 1:
+            requested_selects = [f"{dimension_sql} AS {primary_dimension}"]
+            for metric in cast(Any, list(metrics))[:3]:
+                metric_aggregate = aggregate_for_metric(metric)
+                metric_alias_name = alias_for_metric(metric, metric_aggregate)
+                requested_selects.append(f"{metric_aggregate}({quote_identifier(metric)}) AS {metric_alias_name}")
+            widgets.append(
+                {
+                    "id": "primary_dimension_compare",
+                    "title": f"{format_column_label(primary_metric).title()} Mix by {format_column_label(primary_dimension).title()}",
+                    "chart_type": "stacked_bar",
+                    "sql": (
+                        f"SELECT {', '.join(requested_selects)} "
+                        f"FROM {quote_identifier(active_table)}{where_clause} "
+                        f"GROUP BY {dimension_sql} ORDER BY {metric_alias} DESC LIMIT 12"
+                    ),
+                    "x_axis": primary_dimension,
+                    "y_axis": metric_alias,
+                }
+            )
+        else:
+            widgets.append(
+                {
+                    "id": "primary_dimension_compare",
+                    "title": f"{format_column_label(primary_metric).title()} by {format_column_label(primary_dimension).title()}",
+                    "chart_type": "bar",
+                    "sql": (
+                        f"SELECT {dimension_sql} AS {primary_dimension}, {aggregate}({primary_metric_sql}) AS {metric_alias} "
+                        f"FROM {quote_identifier(active_table)}{where_clause} "
+                        f"GROUP BY {dimension_sql} ORDER BY {metric_alias} DESC LIMIT 12"
+                    ),
+                    "x_axis": primary_dimension,
+                    "y_axis": metric_alias,
+                }
+            )
 
     if secondary_dimension and secondary_dimension != primary_dimension and (has_dashboard or query_mentions(lowered, "break down", "breakdown", "compare", "category", "region")):
         dimension_sql = quote_identifier(secondary_dimension)
@@ -1394,7 +1558,7 @@ def build_local_dashboard_summary(
         if not rows or not x_axis or not y_axis:
             continue
 
-        if widget.get("chart_type") == "line" and len(rows) >= 2:
+        if widget.get("chart_type") in {"line", "area", "multi_line"} and len(rows) >= 2:
             first_row = rows[0]
             last_row = rows[-1]
             first_value = first_row.get(y_axis)
@@ -1546,7 +1710,7 @@ Return JSON only in this shape:
     {{
       "id": "stable_id",
       "title": "Widget title",
-      "chart_type": "line|bar|pie|scatter|table",
+      "chart_type": "line|area|multi_line|bar|stacked_bar|pie|treemap|scatter|table",
       "sql": "SELECT ...",
       "x_axis": "column_name",
       "y_axis": "column_name"
@@ -1560,7 +1724,7 @@ Rules:
 - Use only SQLite SELECT or WITH statements. No semicolons. No markdown.
 - KPI SQL must return one row. Alias the main value column to "value" when possible.
 - Widget SQL should usually return 3 to 12 rows unless the user clearly asked for detail.
-- Use line for time series, bar for comparisons, pie only for parts of a whole with <= 6 slices, scatter for numeric correlation, table for detailed drill-downs.
+- Use line/area for time series (multi_line when multiple metrics are returned), bar/stacked_bar for comparisons (stacked when multiple metrics are returned), pie only for parts of a whole with <= 6 slices, scatter for numeric correlation, table for detailed drill-downs.
 - Favor dashboards that include a trend, a segment comparison, and one supporting view when the request is broad.
 - If the request is a follow-up like "now filter this", apply the conversation history.
 - If the request cannot be answered from this dataset, set cannot_answer to true and leave kpis/widgets empty.
@@ -1643,7 +1807,7 @@ async def execute_dashboard_plan(plan: Dict[str, Any]) -> Tuple[List[Dict[str, A
 
     for index, widget_plan in enumerate(plan.get("widgets", [])[:4]):
         title = str(widget_plan.get("title") or f"Widget {index + 1}")
-        requested_chart_type = str(widget_plan.get("chart_type") or "bar").lower()
+        requested_chart_type = str(widget_plan.get("chart_type") or "bar").lower().replace(" ", "_").replace("-", "_")
 
         success = False
         last_error = ""
@@ -1781,7 +1945,7 @@ def build_fallback_dashboard(query: str, legacy_response: Dict[str, Any]) -> Dic
         }
 
     rows = legacy_response.get("data", [])
-    requested_chart_type = str(legacy_response.get("chart_type") or "table").lower()
+    requested_chart_type = str(legacy_response.get("chart_type") or "table").lower().replace(" ", "_").replace("-", "_")
     x_axis, y_axis = choose_axes(
         rows,
         str(legacy_response.get("x_axis") or ""),
@@ -1977,6 +2141,8 @@ async def health():
             "table": active_table,
             "row_count": dataset_profile.get("row_count", 0),
             "columns": dataset_profile.get("columns", []),
+            "schema": dataset_profile.get("schema", active_schema or ""),
+            "example_prompts": dataset_profile.get("example_prompts", []),
             "llm_client": client is not None
         }
     except Exception as e:
@@ -2019,15 +2185,7 @@ async def get_insights():
 
 @app.get("/api/reset")
 async def reset_dataset():
-    global active_table, active_schema
-    active_table = None
-    if os.path.exists(DB_NAME):
-        try:
-            os.remove(DB_NAME)
-        except:
-            pass
-    active_schema = "No data loaded yet."
-    update_schema_info()
+    reset_dataset_state()
     return {"message": "System reset to clean Lumina state", "table": None}
 
 @app.post("/api/export/widget-csv")

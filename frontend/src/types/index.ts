@@ -6,7 +6,7 @@ export interface InsightCard {
 export type ChartValue = string | number | boolean | null;
 
 export interface ChartConfig {
-    type: "line" | "bar" | "pie" | "scatter" | "table" | "area";
+    type: "line" | "area" | "bar" | "stacked_bar" | "pie" | "treemap" | "scatter" | "multi_line" | "table" | "multi";
     xAxis: string;
     yAxis: string;
 }

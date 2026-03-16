@@ -259,7 +259,7 @@ export default function ExecutiveDashboardView({
             {/* Bento Box Chart Grid */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {item.response.widgets.map((widget, index) => {
-                    const isFullWidth = widget.chart_type === "line" || widget.chart_type === "area" || widget.chart_type === "table";
+                    const isFullWidth = widget.chart_type === "line" || widget.chart_type === "area" || widget.chart_type === "multi_line" || widget.chart_type === "treemap" || widget.chart_type === "table";
                     return (
                         <motion.article
                             key={widget.id}
