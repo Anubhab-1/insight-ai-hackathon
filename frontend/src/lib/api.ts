@@ -6,15 +6,15 @@ function trimTrailingSlash(value: string) {
 
 export function getApiBaseUrl() {
     const configured = process.env.NEXT_PUBLIC_API_URL?.trim() || process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-    if (configured) {
-        return trimTrailingSlash(configured);
-    }
 
     if (typeof window !== "undefined") {
-        const { origin, hostname } = window.location;
-        if (hostname !== "localhost" && hostname !== "127.0.0.1") {
-            return trimTrailingSlash(origin);
-        }
+        // When running in the browser, hit the Next.js API proxy which rewrites to the configured backend
+        // This entirely eliminates CORS issues
+        return "";
+    }
+
+    if (configured) {
+        return trimTrailingSlash(configured);
     }
 
     return DEFAULT_LOCAL_API_BASE_URL;
