@@ -23,6 +23,8 @@ from openai import AsyncOpenAI, RateLimitError, APIStatusError
 ChatCompletion = Any 
 
 from dotenv import load_dotenv
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -86,6 +88,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_msg = f"GLOBAL EXCEPTION: {type(exc).__name__}: {str(exc)}"
+    print(error_msg)
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "A critical backend error occurred.",
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "traceback": traceback.format_exc() if os.environ.get("DEBUG") == "true" else None
+        }
+    )
 
 DB_NAME = os.path.join(BASE_DIR, "insightai.db")
 VALID_CHART_TYPES = {"line", "bar", "pie", "scatter", "table"}
@@ -2101,7 +2118,9 @@ async def query_data(request: QueryRequest):
          raise HTTPException(status_code=500, detail="LLM_API_KEY is missing. Please set it in the backend.")
          
     try:
+        print(f"Incoming query: {request.query}")
         res = await process_dashboard_query(request.query, request.history)
+        print(f"Query processed successfully: {res.get('dashboard_title')}")
 
         return {
             "dashboard_title": str(res.get("dashboard_title", request.query)),
