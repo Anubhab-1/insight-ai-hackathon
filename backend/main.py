@@ -365,6 +365,13 @@ class ExportWidgetRequest(BaseModel):
     title: Optional[str] = None
 
 
+class ExplainChartRequest(BaseModel):
+    title: str
+    chart_type: str
+    data: List[Dict[str, Any]]
+    insight: Optional[str] = None
+
+
 class DashboardMetric(BaseModel):
     title: str
     value: str
@@ -2310,4 +2317,49 @@ async def query_data(request: QueryRequest):
         except:
             status_code, detail = 500, str(e) or "An unknown backend error occurred during query processing."
             
+        return JSONResponse(status_code=status_code, content={"detail": detail})
+
+@app.post("/api/explain-chart")
+async def explain_chart(request: ExplainChartRequest):
+    if not client:
+        raise HTTPException(status_code=500, detail="LLM_API_KEY is missing.")
+    
+    # Truncate data to avoid overflowing context for large charts
+    sample_data = request.data[:50]
+    
+    sys_prompt = f"""
+You are an expert data analyst AI. The user is asking for a deep-dive explanation of a single chart from their dashboard.
+Chart Title: {request.title}
+Chart Type: {request.chart_type}
+Original KPI Insight (if any): {request.insight or 'None'}
+
+Here is the exact data plotted on the chart (showing up to 50 rows):
+{json.dumps(sample_data, default=str)}
+
+Write a highly analytical, 3-sentence deep dive explaining exactly what this chart shows.
+- Point out the most significant extreme (highest/lowest/fastest growing).
+- Provide a potential business reason or implication for this trend.
+- Use **bold** markdown for the most important numbers and segments.
+- Do NOT hallucinate data not present in the JSON above.
+"""
+    
+    try:
+        res = await call_llm_with_retry(
+            client.chat.completions.create,
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": "Explain this chart for me."}
+            ]
+        )
+        res_typed = cast(ChatCompletion, res)
+        explanation = res_typed.choices[0].message.content.strip()
+        return JSONResponse(status_code=200, content={"explanation": explanation})
+    except Exception as e:
+        print(f"Explain Chart Error: {e}")
+        traceback.print_exc()
+        try:
+            status_code, detail = classify_llm_error(e)
+        except:
+            status_code, detail = 500, str(e)
         return JSONResponse(status_code=status_code, content={"detail": detail})

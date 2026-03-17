@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import DashboardRenderer from "./DashboardRenderer";
 import { ChartConfig, QueryResponse } from "@/types";
 import { downloadWidgetCsv, exportDashboardPdf } from "@/lib/export";
+import { explainChart } from "@/lib/api";
 import { ArrowRight, BrainCircuit, CheckCircle2, Download, FileDown, Loader2, ShieldAlert, Sparkles, Zap } from "lucide-react";
 
 /** Render **bold** markdown spans as <strong> elements */
@@ -49,6 +50,10 @@ export default function ExecutiveDashboardView({
     const [exportingWidgetId, setExportingWidgetId] = useState<string | null>(null);
     const [exportMessage, setExportMessage] = useState<{ tone: "error" | "success"; text: string } | null>(null);
 
+    // Chart Explanation State
+    const [explainingWidgetId, setExplainingWidgetId] = useState<string | null>(null);
+    const [chartExplanations, setChartExplanations] = useState<Record<string, string>>({});
+
     async function handleWidgetExport(widget: QueryResponse["widgets"][number]) {
         try {
             setExportMessage(null); setExportingWidgetId(widget.id);
@@ -57,6 +62,34 @@ export default function ExecutiveDashboardView({
         } catch (e) { setExportMessage({ tone: "error", text: (e as Error).message }); }
         finally { setExportingWidgetId(null); }
     }
+
+    const handleExplainChart = async (w: QueryResponse["widgets"][number]) => {
+        if (chartExplanations[w.id]) {
+            // Toggle off if already open
+            setChartExplanations(prev => {
+                const updated = { ...prev };
+                delete updated[w.id];
+                return updated;
+            });
+            return;
+        }
+
+        setExplainingWidgetId(w.id);
+        try {
+            const res = await explainChart({
+                title: w.title,
+                chart_type: w.chart_type,
+                data: w.data,
+                insight: w.insight
+            });
+            setChartExplanations(prev => ({ ...prev, [w.id]: res.explanation }));
+        } catch (err: any) {
+            console.error("Explain Chart error", err);
+            // Optionally show error toast here if you have one
+        } finally {
+            setExplainingWidgetId(null);
+        }
+    };
 
     if (item.error) {
         return (
@@ -181,8 +214,12 @@ export default function ExecutiveDashboardView({
                                         <h3 className="text-xl font-bold text-white">{w.title}</h3>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                        <button onClick={() => handleExplainChart(w)} disabled={explainingWidgetId === w.id}
+                                            className={`nv-pill-violet flex h-9 items-center gap-2 rounded-xl px-4 text-[10px] font-bold transition-all disabled:opacity-50 ${chartExplanations[w.id] ? 'bg-violet-500 text-white' : ''}`}>
+                                            {explainingWidgetId === w.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} {chartExplanations[w.id] ? 'Close Explainer' : 'Explain Chart'}
+                                        </button>
                                         <button onClick={() => handleWidgetExport(w)} disabled={exportingWidgetId === w.id}
-                                            className="nv-pill-emerald flex h-9 items-center gap-2 rounded-xl px-4 text-[10px] font-bold transition-all disabled:opacity-50">
+                                            className="nv-pill-emerald flex h-9 items-center gap-2 rounded-xl px-4 text-[10px] font-bold transition-all disabled:opacity-50 hidden sm:flex">
                                             {exportingWidgetId === w.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} CSV
                                         </button>
                                         <button onClick={() => onToggleSql(w.id)}
@@ -198,6 +235,20 @@ export default function ExecutiveDashboardView({
                                 <div style={{ height: `${chartHeight}px` }} className="w-full">
                                     <DashboardRenderer data={w.data} config={widgetConfig(w)} />
                                 </div>
+
+                                <AnimatePresence>
+                                    {chartExplanations[w.id] && (
+                                        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+                                            className="mb-6 rounded-2xl border-l-4 border-violet-500 bg-violet-500/10 p-5 shadow-lg">
+                                            <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-violet-400">
+                                                <Sparkles className="h-4 w-4" /> AI Deep Dive
+                                            </div>
+                                            <div className="text-sm leading-relaxed text-slate-200">
+                                                {renderMarkdown(chartExplanations[w.id])}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
 
                                 <AnimatePresence>
                                     {openSqlWidgetId === w.id && (

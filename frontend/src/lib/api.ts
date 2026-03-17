@@ -33,3 +33,23 @@ export function buildApiUrl(path: string) {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     return `${getApiBaseUrl()}${normalizedPath}`;
 }
+
+export interface ExplainChartRequest {
+    title: string;
+    chart_type: string;
+    data: any[];
+    insight?: string;
+}
+
+export async function explainChart(req: ExplainChartRequest): Promise<{ explanation: string }> {
+    const res = await fetch(buildApiUrl("/api/explain-chart"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to generate chart explanation");
+    }
+    return res.json();
+}
