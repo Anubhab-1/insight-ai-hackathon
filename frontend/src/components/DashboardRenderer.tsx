@@ -268,8 +268,26 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
     
     const renderConfig = deriveRenderableConfig(data, config);
     const { seriesData, seriesKeys } = buildSeriesData(data, renderConfig);
-    const chartData = sortChartData(data, renderConfig);
-    const sortedSeriesData = sortChartData(seriesData, { ...renderConfig, type: "line" });
+    
+    // Coerce Y-axis values to numbers to ensure Recharts scales them proportionally
+    const coerceChartValues = (arr: ChartRow[], keys: string[]) => {
+        return arr.map(row => {
+            const newRow = { ...row };
+            keys.forEach(k => {
+                if (k && newRow[k] !== undefined && newRow[k] !== null) {
+                    newRow[k] = coerceNumber(newRow[k]);
+                }
+            });
+            return newRow;
+        });
+    };
+
+    const yKeysToCoerce = renderConfig.type === 'multi_line' ? seriesKeys : [renderConfig.yAxis];
+    const numericData = coerceChartValues(data, yKeysToCoerce);
+    const numericSeriesData = coerceChartValues(seriesData, seriesKeys);
+
+    const chartData = sortChartData(numericData, renderConfig);
+    const sortedSeriesData = sortChartData(numericSeriesData, { ...renderConfig, type: "line" });
     
     const primaryColor = COLORS[0];
     const gridColor = "rgba(139, 92, 246, 0.05)";
@@ -367,9 +385,9 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
                         <PieChart>
                             <Tooltip content={<CustomTooltip />} />
                             <Legend content={renderLegend} />
-                            <Pie data={data} cx="50%" cy="45%" labelLine={false} outerRadius="85%" innerRadius="65%" paddingAngle={5} stroke="none"
+                            <Pie data={numericData} cx="50%" cy="45%" labelLine={false} outerRadius="85%" innerRadius="65%" paddingAngle={5} stroke="none"
                                 dataKey={renderConfig.yAxis} nameKey={renderConfig.xAxis} animationDuration={1500}>
-                                {data.map((_, idx) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} fillOpacity={0.85} className="outline-none" />)}
+                                {numericData.map((_, idx) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} fillOpacity={0.85} className="outline-none" />)}
                             </Pie>
                         </PieChart>
                     </ResponsiveContainer>
@@ -377,7 +395,7 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
             case 'treemap':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                        <Treemap data={chartData.map(r => ({ name: String(r[renderConfig.xAxis] || "Unknown"), size: coerceNumber(r[renderConfig.yAxis]) || 0 }))}
+                        <Treemap data={chartData.map((r, i) => ({ name: String(r[renderConfig.xAxis] || "Unknown"), size: numericData[i]?.[renderConfig.yAxis] || 0 }))}
                             dataKey="size" stroke="#04030a" fill={primaryColor} aspectRatio={4/3}
                             content={({ x, y, width, height, index, name, value }: any) => (
                                 <g>
