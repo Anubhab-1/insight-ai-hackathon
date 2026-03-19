@@ -395,10 +395,27 @@
     display: none !important;
   }
 
+  [data-export-hide="true"] {
+    display: none !important;
+  }
+
   .app-shell, .app-content, .app-main, .print-surface {
     background: #ffffff !important;
     padding-left: 0 !important;
     max-width: none !important;
+  }
+
+  [data-export-root="dashboard-report"] [data-export-grid="kpis"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+
+  [data-export-root="dashboard-report"] [data-export-grid="widgets"],
+  [data-export-root="dashboard-report"] [data-export-grid="decision-panels"] {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
   }
 
   .print-card {
@@ -423,6 +440,12 @@
   .print-card .recharts-legend-item-text,
   .print-card .recharts-text tspan {
     fill: #374151 !important;
+  }
+
+  [data-export-root="dashboard-report"] [data-export-card]::before,
+  [data-export-root="dashboard-report"] [data-export-card]::after,
+  [data-export-root="dashboard-report"] [data-export-decor="true"] {
+    display: none !important;
   }
 
   .print-chart {

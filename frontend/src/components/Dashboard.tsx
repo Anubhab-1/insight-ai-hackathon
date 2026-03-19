@@ -105,8 +105,10 @@ interface HistoryEntry {
 }
 
 function toDatasetState(payload: DatasetHealth | UploadResponse): DatasetState {
+    const rawName = "table" in payload ? payload.table : payload.table_name;
+
     return {
-        name: "table" in payload ? payload.table : payload.table_name,
+        name: typeof rawName === "string" && rawName.trim() ? rawName : "dataset",
         rows: payload.row_count,
         columns: Array.isArray(payload.columns) ? payload.columns : [],
         schema: payload.schema || "Schema unavailable.",
@@ -315,7 +317,7 @@ export default function Dashboard() {
     }
 
     return (
-        <div className="nv-bg min-h-screen">
+        <div className="nv-bg app-shell min-h-screen">
             {needsUpload && <UploadOverlay onUploadSuccess={handleUploadSuccess} />}
             
             {/* Mobile Sidebar Overlay */}
@@ -329,7 +331,7 @@ export default function Dashboard() {
 
             <div className="flex min-h-screen">
                 {/* ── Sidebar ── */}
-                <aside className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r transition-all duration-500 ease-in-out md:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+                <aside className={`app-sidebar fixed inset-y-0 left-0 z-50 w-72 transform border-r transition-all duration-500 ease-in-out md:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
                     style={{ background: "#090714", borderColor: "rgba(139,92,246,0.12)" }}>
                     
                     {/* Animated Data Matrix Lines Background */}
@@ -450,7 +452,7 @@ export default function Dashboard() {
                 <div className="relative z-10 flex min-h-screen flex-1 flex-col transition-all duration-500 md:pl-72">
                     
                     {/* Header: Chat Search Bar */}
-                    <header className="sticky top-0 z-30 px-4 py-4 backdrop-blur-3xl sm:px-8 sm:py-6" style={{ background: "rgba(4,3,10,0.6)", borderBottom: "1px solid rgba(139,92,246,0.06)" }}>
+                    <header className="app-header sticky top-0 z-30 px-4 py-4 backdrop-blur-3xl sm:px-8 sm:py-6" style={{ background: "rgba(4,3,10,0.6)", borderBottom: "1px solid rgba(139,92,246,0.06)" }}>
                         <div className="mx-auto flex w-full max-w-6xl items-center gap-4">
                             <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 rounded-xl border" style={{ borderColor: "rgba(139,92,246,0.2)" }}>
                                 <Menu className="h-5 w-5 text-violet-400" />
@@ -504,7 +506,7 @@ export default function Dashboard() {
                     </header>
 
                     {/* Dashboard Main Scroll Surface */}
-                    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-8 sm:px-8">
+                    <main className="app-main print-surface mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-8 sm:px-8">
                         <AnimatePresence mode="wait">
                             {loadingQuery && !activeItem?.response ? (
                                 <motion.div key="thinking" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}

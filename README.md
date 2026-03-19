@@ -1,103 +1,75 @@
-# Lumina
+# 🌌 Nova Analytics: The Executive Decision Engine
 
-Lumina turns raw CSV files into decision-ready dashboards and executive briefings. Upload a dataset, ask a business question in plain English, and review KPIs, charts, recommendations, and follow-up questions backed by read-only SQL.
+**Nova Analytics** (formerly Lumina) is a high-performance, AI-driven BI platform built to turn raw CSV data into executive-ready dashboards in seconds. It combines sophisticated data planning, self-healing SQL generation, and a premium "Neural Void" design language to deliver insights that go beyond simple charts.
 
-## Why Lumina
+---
 
-- CSV-first workflow with almost no setup
-- Safe SQL execution against a local SQLite dataset
-- Schema preview, sample rows, and suggested prompts after upload
-- Executive summary, chart insights, and export-ready dashboard views
-- Local fallback mode when no LLM key is configured
+## ✨ Key Features
 
-## Product Flow
+- **🧠 Self-Healing SQL Planner**: Our backend doesn't just guess. It analyzes your schema, generates complex SQLite queries, and if they fail, it **automatically corrects its own errors** in a feedback loop.
+- **📊 Intelligent Visualization**: Built-in support for 11+ chart types, including **Radar** and **Composed** views. The system automatically selects the most readable visualization based on your data distribution.
+- **💓 Neural Pulse UX**: A transparent, multi-stage loading experience that narrates the system's "internal thoughts" (Analyzing → Planning → Synthesizing).
+- **📝 Executive Narration**: Every dashboard includes a high-level summary and actionable recommendations written for C-suite decision-makers.
+- **🗣️ Voice-to-Dashboard**: Integrated speech recognition for hands-free query input.
+- **💅 Neural Void UI**: A premium glassmorphism design system with iridescent borders, mesh gradients, and smooth staggered entrance animations.
 
-1. Upload a CSV.
-2. Lumina normalizes the columns, loads the data into SQLite, and profiles the schema.
-3. A planner creates KPIs, widgets, and safe query plans.
-4. The backend validates and executes only read-only SQL.
-5. The frontend renders the dashboard, summary, and follow-up questions.
+---
 
-## Stack
+## 🛠️ Technical Stack
 
-- Backend: FastAPI, pandas, SQLite, OpenAI-compatible LLM client
-- Frontend: Next.js App Router, TypeScript, Tailwind CSS, Recharts, Framer Motion
+- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS v4, Framer Motion, Recharts.
+- **Backend**: FastAPI (Python), Pandas, SQLite.
+- **Inference**: OpenAI-compatible API (Optimized for Llama 3 on Groq or Google Gemini).
+- **Deployment**: Docker Compose ready (Frontend + Backend).
 
-## Project Layout
+---
 
-- `backend/main.py`: API surface, dataset loading, SQL validation, dashboard planning
-- `backend/test_*.py`: backend coverage for upload, querying, and fallback behavior
-- `frontend/src/components/Dashboard.tsx`: workspace shell, dataset state, history, prompt bar
-- `frontend/src/components/ExecutiveDashboardView.tsx`: dashboard rendering, exports, SQL reveal
-- `frontend/src/components/DashboardRenderer.tsx`: chart and table rendering
+## 🚀 Quick Start
 
-## Local Setup
-
-### Backend
-
-1. Copy `backend/.env.example` to `backend/.env`.
-2. Add `LLM_API_KEY` if you want LLM-backed planning.
-3. Install dependencies from `backend/requirements.txt`.
-4. Run `uvicorn main:app --reload` from the `backend` directory.
-
-### Frontend
-
-1. Copy `frontend/.env.example` to `frontend/.env.local`.
-2. Run `npm install` in `frontend`.
-3. Run `npm run dev`.
-4. Open `http://localhost:3000`.
-
-## Environment Variables
-
-### Backend
-
-- `LLM_API_KEY`: provider key for the OpenAI-compatible endpoint
-- `LLM_BASE_URL`: provider base URL
-- `LLM_MODEL`: model identifier
-- `API_CORS_ORIGINS`: comma-separated list of allowed frontend origins
-- `LUMINA_DISABLE_LLM`: optional flag to force local fallback mode
-- `LUMINA_ALLOW_RESET`: optional flag to enable `/api/reset` outside local development
-
-Legacy environment aliases are still accepted for backward compatibility.
-
-### Frontend
-
-- `NEXT_PUBLIC_API_BASE_URL`: public backend base URL for browser requests
-
-If `NEXT_PUBLIC_API_BASE_URL` is omitted on localhost, the frontend uses the local backend. For split or reverse-proxy deployments, set it explicitly.
-
-## Quality Checks
-
+### 1. Backend Setup
 ```bash
-cd backend && pytest -q
-cd frontend && npm run lint
-cd frontend && npm run typecheck
-cd frontend && npm run build
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env      # Add your LLM_API_KEY
+uvicorn main:app --reload
 ```
 
-## Deployment
-
-### Docker
-
+### 2. Frontend Setup
 ```bash
-docker compose up --build
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
 ```
 
-This starts the frontend on `http://localhost:3000` and the backend on `http://localhost:8000`.
+### 3. Usage
+- Open `http://localhost:3000`.
+- Upload any CSV (e.g., `sample_sales.csv`).
+- Ask: *"Show me engagement trends by category and explain the primary revenue drivers."*
 
-### Split Deployment
+---
 
-1. Deploy the backend with `backend/Dockerfile` or `uvicorn main:app --host 0.0.0.0 --port 8000`.
-2. Set `API_CORS_ORIGINS` to your frontend URL.
-3. Deploy the frontend with `frontend/Dockerfile`.
-4. Build the frontend with `NEXT_PUBLIC_API_BASE_URL` set to the public backend URL.
+## 📐 Architecture: How it Works
 
-## Demo Notes
+1.  **Schema Profiling**: Upon CSV upload, the system normalizes headers and loads them into a temporary SQLite instance.
+2.  **Dual-Pass Intelligence**:
+    - **Pass 1 (Planning)**: The LLM generates a structured JSON dashboard plan including SQL, chart types, and x/y axes.
+    - **Pass 2 (Synthesizing)**: Once the data is fetched, the LLM performs a deep-dive analysis on the actual numbers to generate executive insights.
+3.  **Visualization Heuristics**: Our frontend renderer identifies "poor" visualizations (e.g., a Pie chart with too many slices) and automatically converts them to ranked Bar charts for maximum clarity.
 
-- Upload a CSV and use the built-in starter prompts.
-- Show the schema preview, sample rows, and visible SQL to reinforce trust.
-- Export the finished dashboard as a briefing once the first answer is ready.
+---
 
-## Security Note
+## 🧪 Quality & Stability
 
-If an API key was ever committed to this workspace, revoke it and issue a new one. `.gitignore` excludes backend secrets, but rotated credentials are still the safest move.
+The codebase includes a comprehensive suite of backend tests:
+```bash
+cd backend
+pytest test_sql_sanitization.py  # Verifies SQL security
+pytest test_upload_validation.py # Verifies dataset loading
+```
+
+---
+
+*Built with ❤️ for the Hackathon Demo.* 🚀

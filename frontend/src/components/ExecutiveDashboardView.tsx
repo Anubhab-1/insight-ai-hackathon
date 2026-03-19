@@ -133,11 +133,24 @@ export default function ExecutiveDashboardView({
     }
 
     return (
-        <motion.section variants={containerVariants} initial="hidden" animate="show" className="space-y-10 pb-20">
+        <motion.section
+            variants={containerVariants}
+            initial="hidden"
+            animate="show"
+            className="space-y-10 pb-20"
+            data-export-root="dashboard-report"
+        >
             {/* Header / Executive Summary */}
-            <motion.div variants={itemVariants} className="nv-card-premium print-card rounded-[2.5rem] p-8 shadow-2xl sm:p-12 relative overflow-hidden group">
+            <motion.div
+                variants={itemVariants}
+                className="nv-card-premium print-card rounded-[2.5rem] p-8 shadow-2xl sm:p-12 relative overflow-hidden group"
+                data-export-card="hero"
+            >
                 {/* Decorative background glow */}
-                <div className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-violet-600/10 blur-[80px] group-hover:bg-violet-600/20 transition-colors duration-700" />
+                <div
+                    className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-violet-600/10 blur-[80px] group-hover:bg-violet-600/20 transition-colors duration-700"
+                    data-export-decor="true"
+                />
                 
                 <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between relative z-10">
                     <div className="max-w-4xl space-y-6">
@@ -166,7 +179,13 @@ export default function ExecutiveDashboardView({
                         <div className={`rounded-full text-[11px] font-bold uppercase tracking-widest shadow-lg ${confidenceClasses(item.response.confidence)}`}>
                             {item.response.confidence || "Low"} confidence
                         </div>
-                        <button onClick={() => exportDashboardPdf(item.response?.dashboard_title || "")}
+                        <button
+                            onClick={() => exportDashboardPdf({
+                                title: item.response?.dashboard_title || "",
+                                query: item.query,
+                                confidence: item.response?.confidence,
+                            })}
+                            data-export-hide="true"
                             className="nv-btn-primary flex items-center justify-center gap-3 rounded-full px-8 py-3.5 text-xs font-bold text-white transition-all">
                             <FileDown className="h-4 w-4" /> Export Report
                         </button>
@@ -176,6 +195,7 @@ export default function ExecutiveDashboardView({
 
             {exportMessage && (
                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+                    data-export-hide="true"
                     className={`rounded-2xl border px-5 py-3 text-xs font-medium ${exportMessage.tone === "error" ? "nv-pill bg-rose-500/5 text-rose-300 border-rose-500/20" : "nv-pill-emerald"}`}>
                     {exportMessage.text}
                 </motion.div>
@@ -183,13 +203,14 @@ export default function ExecutiveDashboardView({
 
             {/* KPI Grid */}
             {item.response.kpis.length > 0 && (
-                <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-6">
-                    {item.response.kpis.map((kpi, idx) => (
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-6" data-export-grid="kpis">
+                    {item.response.kpis.map((kpi) => (
                         <motion.div key={kpi.title} variants={itemVariants}
-                            className="nv-card nv-card-hover rounded-[2rem] p-8 shadow-xl relative group overflow-hidden">
+                            className="nv-card nv-card-hover print-card rounded-[2rem] p-8 shadow-xl relative group overflow-hidden"
+                            data-export-card="kpi">
                             {/* Animated hover highlight */}
-                            <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                            <div className="absolute top-0 left-0 w-full h-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-violet-500/40 to-transparent" />
+                            <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" data-export-decor="true" />
+                            <div className="absolute top-0 left-0 w-full h-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-violet-500/40 to-transparent" data-export-decor="true" />
                             
                             <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-slate-500 relative z-10">{kpi.title}</p>
                             <p className="mt-3 text-4xl font-black tracking-tight text-white relative z-10">{kpi.value}</p>
@@ -200,20 +221,22 @@ export default function ExecutiveDashboardView({
             )}
 
             {/* Bento Charts */}
-            <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-8 xl:grid-cols-2" data-export-grid="widgets">
                 {item.response.widgets.map((w) => {
-                    const isWide = ["line", "area", "multi_line", "treemap", "table"].includes(w.chart_type);
+                    const isWide = ["line", "area", "multi_line", "treemap", "table", "composed"].includes(w.chart_type);
                     // Adaptive chart height based on type and data rows
                     const chartHeight = (() => {
                         if (w.chart_type === "table") return Math.min(80 + (w.data?.length ?? 10) * 42, 560);
                         if (w.chart_type === "pie" || w.chart_type === "treemap") return 320;
-                        if (["line", "area", "multi_line"].includes(w.chart_type)) return 380;
+                        if (["line", "area", "multi_line", "composed"].includes(w.chart_type)) return 380;
+                        if (w.chart_type === "radar") return 360;
                         if (w.chart_type === "stacked_bar" || w.chart_type === "bar") return Math.min(300 + (w.data?.length ?? 8) * 14, 420);
                         return 360;
                     })();
                     return (
                         <motion.article key={w.id} variants={itemVariants}
-                            className={`nv-card-premium nv-card-hover print-card flex flex-col rounded-[2.5rem] overflow-hidden ${isWide ? "xl:col-span-2" : "xl:col-span-1"} group`}>
+                            className={`nv-card-premium nv-card-hover print-card flex flex-col rounded-[2.5rem] overflow-hidden ${isWide ? "xl:col-span-2" : "xl:col-span-1"} group`}
+                            data-export-card="widget">
                             
                             <div className="border-b px-8 py-7" style={{ borderColor: "rgba(139,92,246,0.1)", background: "linear-gradient(90deg, rgba(139,92,246,0.05), transparent)" }}>
                                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -223,7 +246,7 @@ export default function ExecutiveDashboardView({
                                         </div>
                                         <h3 className="text-2xl font-black tracking-tight text-white group-hover:text-violet-200 transition-colors">{w.title}</h3>
                                     </div>
-                                    <div className="flex items-center gap-2.5">
+                                    <div className="flex items-center gap-2.5" data-export-hide="true">
                                         <button onClick={() => handleExplainChart(w)} disabled={explainingWidgetId === w.id}
                                             className={`nv-pill-violet flex h-10 items-center gap-2 rounded-xl px-5 text-[10px] font-bold transition-all disabled:opacity-50 ${chartExplanations[w.id] ? 'bg-violet-600 text-white shadow-[0_0_20px_rgba(139,92,246,0.4)]' : 'hover:bg-violet-500/20'}`}>
                                             {explainingWidgetId === w.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} {chartExplanations[w.id] ? 'Close Explainer' : 'AI Analysis'}
@@ -247,7 +270,7 @@ export default function ExecutiveDashboardView({
                             </div>
 
                             <div className="flex-1 p-8">
-                                <div style={{ height: `${chartHeight}px` }} className="w-full">
+                                <div style={{ height: `${chartHeight}px` }} className="w-full" data-export-chart="true">
                                     <DashboardRenderer data={w.data} config={widgetConfig(w)} />
                                 </div>
 
@@ -268,6 +291,7 @@ export default function ExecutiveDashboardView({
                                 <AnimatePresence>
                                     {openSqlWidgetId === w.id && (
                                         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                                            data-export-hide="true"
                                             className="mt-6 overflow-hidden rounded-2xl border bg-[#05040d]" style={{ borderColor: "rgba(139,92,246,0.1)" }}>
                                             <div className="border-b px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-slate-500" style={{ background: "rgba(139,92,246,0.04)", borderColor: "rgba(139,92,246,0.1)" }}>
                                                 Executed SQL
@@ -285,9 +309,9 @@ export default function ExecutiveDashboardView({
             </div>
 
             {/* Recommendations & Follow-ups */}
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-                <motion.div variants={itemVariants} className="nv-card-premium rounded-[2.5rem] p-10 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-3xl rounded-full" />
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-2" data-export-grid="decision-panels">
+                <motion.div variants={itemVariants} className="nv-card-premium print-card rounded-[2.5rem] p-10 relative overflow-hidden" data-export-card="panel">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-3xl rounded-full" data-export-decor="true" />
                     <div className="mb-10 flex items-center gap-5">
                         <div className="nv-glow flex h-14 w-14 items-center justify-center rounded-[1.25rem] bg-emerald-500/10 border border-emerald-500/25 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
                             <CheckCircle2 className="h-7 w-7 text-emerald-400" />
@@ -309,8 +333,8 @@ export default function ExecutiveDashboardView({
                     </div>
                 </motion.div>
 
-                <motion.div variants={itemVariants} className="nv-card-premium rounded-[2.5rem] p-10 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/5 blur-3xl rounded-full" />
+                <motion.div variants={itemVariants} className="nv-card-premium print-card rounded-[2.5rem] p-10 relative overflow-hidden" data-export-card="panel">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-violet-600/5 blur-3xl rounded-full" data-export-decor="true" />
                     <div className="mb-10 flex items-center gap-5">
                         <div className="nv-glow flex h-14 w-14 items-center justify-center rounded-[1.25rem] bg-violet-600/10 border border-violet-500/25 shadow-[0_0_20px_rgba(139,92,246,0.15)]">
                             <Sparkles className="h-7 w-7 text-violet-400" />
@@ -320,10 +344,11 @@ export default function ExecutiveDashboardView({
                             <h3 className="text-2xl font-black text-white tracking-tight">Next Questions</h3>
                         </div>
                     </div>
-                    <div className="grid gap-4">
-                        {item.response.follow_up_questions.map((q) => (
-                            <button key={q} onClick={() => onRunPrompt(q)}
-                                className="group flex items-center justify-between rounded-2xl border px-6 py-5 text-left transition-all hover:border-violet-500/40 hover:bg-violet-500/[0.03] hover:shadow-2xl border-violet-500/10 bg-violet-500/[0.01]">
+                        <div className="grid gap-4">
+                            {item.response.follow_up_questions.map((q) => (
+                                <button key={q} onClick={() => onRunPrompt(q)}
+                                    data-export-static="followup"
+                                    className="group flex items-center justify-between rounded-2xl border px-6 py-5 text-left transition-all hover:border-violet-500/40 hover:bg-violet-500/[0.03] hover:shadow-2xl border-violet-500/10 bg-violet-500/[0.01]">
                                 <span className="pr-4 text-sm font-semibold leading-relaxed text-slate-300 group-hover:text-white transition-colors">{q}</span>
                                 <div className="h-8 w-8 flex items-center justify-center rounded-full bg-slate-900 border border-slate-800 group-hover:border-violet-500/40 group-hover:bg-violet-500/10 transition-all">
                                     <ArrowRight className="h-4 w-4 shrink-0 text-slate-600 group-hover:translate-x-0.5 group-hover:text-violet-400 transition-all" />

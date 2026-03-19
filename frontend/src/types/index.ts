@@ -5,9 +5,22 @@ export interface InsightCard {
 
 export type ChartValue = string | number | boolean | null;
 export type DatasetRecord = Record<string, ChartValue>;
+export type WidgetChartType =
+    | "line"
+    | "area"
+    | "bar"
+    | "stacked_bar"
+    | "pie"
+    | "treemap"
+    | "scatter"
+    | "multi_line"
+    | "table"
+    | "radar"
+    | "composed";
+export type ChartConfigType = WidgetChartType | "multi";
 
 export interface ChartConfig {
-    type: "line" | "area" | "bar" | "stacked_bar" | "pie" | "treemap" | "scatter" | "multi_line" | "table" | "multi";
+    type: ChartConfigType;
     xAxis: string;
     yAxis: string;
 }
@@ -23,7 +36,7 @@ export interface DashboardMetric {
 export interface DashboardWidget {
     id: string;
     title: string;
-    chart_type: ChartConfig["type"];
+    chart_type: WidgetChartType;
     x_axis: string;
     y_axis: string;
     sql: string;
@@ -47,7 +60,7 @@ export interface QueryResponse {
 export interface DatasetHealth {
     status: string;
     has_data: boolean;
-    table: string;
+    table: string | null;
     row_count: number;
     columns: string[];
     schema: string;
