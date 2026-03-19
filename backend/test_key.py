@@ -14,7 +14,7 @@ def test_insights_endpoint_reports_missing_api_key(monkeypatch):
     assert payload["insights"][0]["title"] == "API Key Missing"
 
 
-def test_query_endpoint_requires_api_key(monkeypatch):
+def test_query_endpoint_uses_local_fallback_without_api_key(monkeypatch):
     monkeypatch.setattr(main, "client", None)
 
     with TestClient(main.app) as client:
@@ -23,8 +23,11 @@ def test_query_endpoint_requires_api_key(monkeypatch):
             json={"query": "Show me views by region", "history": []},
         )
 
-    assert response.status_code == 500
-    assert response.json()["detail"] == "LLM_API_KEY is missing. Please set it in the backend."
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cannot_answer"] is False
+    assert payload["dashboard_subtitle"] == "Generated from local query heuristics while the LLM provider is unavailable."
+    assert len(payload["widgets"]) >= 1
 
 
 def test_get_dataset_profile_recovers_from_stale_active_table(monkeypatch):

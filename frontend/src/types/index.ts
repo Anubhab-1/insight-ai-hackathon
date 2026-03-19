@@ -4,6 +4,7 @@ export interface InsightCard {
 }
 
 export type ChartValue = string | number | boolean | null;
+export type DatasetRecord = Record<string, ChartValue>;
 
 export interface ChartConfig {
     type: "line" | "area" | "bar" | "stacked_bar" | "pie" | "treemap" | "scatter" | "multi_line" | "table" | "multi";
@@ -26,7 +27,7 @@ export interface DashboardWidget {
     x_axis: string;
     y_axis: string;
     sql: string;
-    data: Record<string, ChartValue>[];
+    data: DatasetRecord[];
     insight?: string | null;
 }
 
@@ -51,6 +52,8 @@ export interface DatasetHealth {
     columns: string[];
     schema: string;
     example_prompts: string[];
+    sample_data: DatasetRecord[];
+    llm_client: boolean;
 }
 
 export interface UploadResponse {
@@ -60,6 +63,7 @@ export interface UploadResponse {
     row_count: number;
     columns: string[];
     example_prompts: string[];
-    sample_data: Record<string, ChartValue>[];
+    sample_data: DatasetRecord[];
+    llm_client: boolean;
     auto_insights: InsightCard[];
 }

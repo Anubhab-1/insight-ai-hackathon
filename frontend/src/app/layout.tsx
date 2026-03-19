@@ -15,8 +15,8 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Lumina | Neural Intelligence Platform",
-  description: "Transform raw data into executive-grade dashboards with AI-powered natural language queries",
+  title: "Lumina | CSV to Executive Dashboard",
+  description: "Upload a CSV, ask a business question, and turn the result into an executive-ready dashboard.",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} min-h-screen antialiased bg-background text-foreground selection:bg-violet-500/30 selection:text-violet-100`}>
         {children}
       </body>

@@ -13,6 +13,7 @@ import asyncio
 import concurrent.futures
 import re
 import random
+import shutil
 import time
 import traceback
 import html
@@ -28,6 +29,14 @@ from fastapi.responses import JSONResponse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
+TRUTHY_ENV_VALUES = {"1", "true", "yes"}
+
+
+def env_flag(*names: str) -> bool:
+    for name in names:
+        if os.environ.get(name, "").strip().lower() in TRUTHY_ENV_VALUES:
+            return True
+    return False
 
 
 def parse_cors_origins(raw_value: Optional[str]) -> List[str]:
@@ -55,7 +64,7 @@ client: Optional[AsyncOpenAI] = None
 
 def _init_client() -> Optional[AsyncOpenAI]:
     """Initialize the OpenAI client with environment configuration."""
-    if os.environ.get("INSIGHTAI_DISABLE_LLM", "").strip().lower() in {"1", "true", "yes"}:
+    if env_flag("LUMINA_DISABLE_LLM", "INSIGHTAI_DISABLE_LLM"):
         return None
     api_key = os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY") or os.environ.get("XAI_API_KEY")
     base_url = os.environ.get("LLM_BASE_URL") or "https://api.groq.com/openai/v1"
@@ -80,14 +89,14 @@ async def lifespan(_: FastAPI):
             client = None
 
 
-app = FastAPI(title="InsightAI Backend", lifespan=lifespan)
+app = FastAPI(title="Lumina Backend", lifespan=lifespan)
 
 # CORS setup
 CORS_ORIGINS = parse_cors_origins(os.environ.get("API_CORS_ORIGINS"))
 CORS_ALLOW_ALL = "*" in CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"] if CORS_ALLOW_ALL else CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,7 +104,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"message": "InsightAI API is running", "env": os.environ.get("RENDER_EXTERNAL_URL", "local")}
+    return {"message": "Lumina API is running", "env": os.environ.get("RENDER_EXTERNAL_URL", "local")}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -112,8 +121,21 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
-DB_NAME = os.path.join(BASE_DIR, "insightai.db")
-VALID_CHART_TYPES = {"line", "area", "bar", "stacked_bar", "pie", "treemap", "scatter", "multi_line", "table"}
+PRIMARY_DB_NAME = os.path.join(BASE_DIR, "lumina.db")
+DB_NAME = PRIMARY_DB_NAME
+if not os.path.exists(DB_NAME):
+    legacy_db_candidates = [
+        os.path.join(BASE_DIR, name)
+        for name in os.listdir(BASE_DIR)
+        if name.endswith(".db") and name != os.path.basename(PRIMARY_DB_NAME)
+    ]
+    if len(legacy_db_candidates) == 1 and os.path.exists(legacy_db_candidates[0]):
+        try:
+            shutil.copyfile(legacy_db_candidates[0], DB_NAME)
+        except OSError:
+            DB_NAME = legacy_db_candidates[0]
+
+VALID_CHART_TYPES = {"line", "area", "bar", "stacked_bar", "pie", "treemap", "scatter", "multi_line", "table", "radar", "composed"}
 VALID_METRIC_FORMATS = {"number", "percent", "currency", "text"}
 FORBIDDEN_SQL_PATTERN = re.compile(r"\b(insert|update|delete|drop|alter|create|replace|truncate|attach|detach|pragma|vacuum)\b", re.IGNORECASE)
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -201,7 +223,7 @@ def update_schema_info():
 
 
 def should_reset_demo_dataset() -> bool:
-    if os.environ.get("INSIGHTAI_ALLOW_DEMO", "").strip().lower() in {"1", "true", "yes"}:
+    if env_flag("LUMINA_ALLOW_DEMO", "INSIGHTAI_ALLOW_DEMO"):
         return False
     if not os.path.exists(DB_NAME):
         return False
@@ -235,7 +257,7 @@ def preload_youtube_data():
     global active_table
     csv_path = os.path.join(BASE_DIR, "youtube_data.csv")
     if not os.path.exists(csv_path):
-        if os.environ.get("INSIGHTAI_TEST_DATA", "").strip().lower() in {"1", "true", "yes"}:
+        if env_flag("LUMINA_TEST_DATA", "INSIGHTAI_TEST_DATA"):
             df = pd.DataFrame(
                 [
                     {
@@ -311,7 +333,7 @@ def preload_youtube_data():
     print(f"Synced demo dataset with {len(df)} rows into youtube_analytics")
     update_schema_info()
 
-# preload_youtube_data() # Disabled for clean startup in Lumina rebranding
+# Demo preload is intentionally disabled for a clean startup experience.
 
 LLM_MODEL = os.environ.get("LLM_MODEL") or "llama-3.3-70b-versatile"
 
@@ -457,6 +479,22 @@ def get_active_columns() -> List[Dict[str, str]]:
     return []
 
 
+def get_dataset_sample(limit: int = 5) -> List[Dict[str, Any]]:
+    if not active_table or limit <= 0:
+        return []
+
+    safe_limit = max(1, min(int(limit), 50))
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT * FROM {quote_identifier(active_table)} LIMIT {safe_limit}")
+        return [dict(row) for row in cursor.fetchall()]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
 def is_boolean_like_column(column_name: str) -> bool:
     lowered = column_name.lower()
     return lowered.startswith(("is_", "has_")) or lowered.endswith(("_flag", "_enabled", "_active"))
@@ -594,6 +632,7 @@ def get_dataset_profile() -> Dict[str, Any]:
         "categorical_columns": [],
         "date_columns": [],
         "example_prompts": [],
+        "sample_data": [],
     }
 
     if not active_schema or "No data" in active_schema:
@@ -628,6 +667,7 @@ def get_dataset_profile() -> Dict[str, Any]:
             "numeric_columns": numeric_columns,
             "categorical_columns": categorical_columns,
             "date_columns": date_columns,
+            "sample_data": get_dataset_sample(),
         }
     )
     profile["example_prompts"] = generate_example_prompts(profile)
@@ -1044,15 +1084,45 @@ def choose_axes(
     return x_axis, y_axis
 
 
+def summarize_numeric_distribution(rows: List[Dict[str, Any]], value_key: str) -> Optional[Dict[str, float]]:
+    values = [float(row[value_key]) for row in rows if is_numeric_value(row.get(value_key))]
+    if len(values) < 2:
+        return None
+
+    minimum = min(values)
+    maximum = max(values)
+    positive_total = sum(value for value in values if value > 0)
+    spread_ratio = abs(maximum - minimum) / abs(maximum) if maximum else 0.0
+    top_share = maximum / positive_total if positive_total > 0 else 0.0
+
+    return {
+        "min": minimum,
+        "max": maximum,
+        "spread_ratio": spread_ratio,
+        "top_share": top_share,
+    }
+
+
 def choose_chart_type(rows: List[Dict[str, Any]], requested_chart_type: str, x_axis: str, y_axis: str) -> str:
     columns, numeric_columns, date_columns, _ = classify_result_columns(rows)
     normalized = "multi_line" if requested_chart_type == "multi" else requested_chart_type
     chart_type = normalized if normalized in VALID_CHART_TYPES else ""
+    
+    # Handle New Chart Types (Radar & Composed)
+    if chart_type == "radar" and len(numeric_columns) < 3:
+        chart_type = "bar" # Fallback if not enough numeric dimensions
+        
+    if chart_type == "composed" and len(numeric_columns) < 2:
+        chart_type = "line" if is_dateish_name(x_axis) else "bar"
     numeric_series = [column for column in numeric_columns if column != x_axis]
     series_dimensions = [column for column in columns if column not in numeric_columns and column != x_axis]
+    distribution = summarize_numeric_distribution(rows, y_axis) if y_axis in columns else None
 
     if chart_type == "pie" and len(rows) > 6:
         chart_type = "treemap"
+    elif chart_type == "pie" and distribution:
+        if distribution["spread_ratio"] < 0.12 or distribution["top_share"] < 0.35:
+            chart_type = "bar"
 
     if chart_type == "scatter" and not (x_axis in numeric_columns and y_axis in numeric_columns):
         chart_type = ""
@@ -1279,11 +1349,11 @@ def build_local_follow_up_questions(primary_metric: str, primary_dimension: Opti
 
     if date_column:
         prompts.append(
-            f"Now show how {format_column_label(primary_metric)} changes over time for the strongest {format_column_label(primary_dimension or 'segment')}."
+            f"Show the trend of {format_column_label(primary_metric)} over time for the strongest {format_column_label(primary_dimension or 'segment')}."
         )
 
     prompts.append(
-        f"Compare {format_column_label(primary_metric)} across the top {format_column_label(primary_dimension or 'segments')} and highlight the leader."
+        f"Compare {format_column_label(primary_metric)} across {format_column_label(primary_dimension or 'segments')} and highlight the leader."
     )
 
     unique_prompts: List[str] = []
@@ -1291,6 +1361,102 @@ def build_local_follow_up_questions(primary_metric: str, primary_dimension: Opti
         if prompt not in unique_prompts:
             unique_prompts.append(prompt)
     return unique_prompts[:3]
+
+
+def normalize_follow_up_metric(metric_name: Optional[str], numeric_columns: List[str]) -> str:
+    if metric_name:
+        normalized = str(metric_name).strip().lower()
+        if normalized in numeric_columns:
+            return normalized
+
+        for prefix in ["total_", "avg_", "sum_", "count_"]:
+            if normalized.startswith(prefix):
+                candidate = normalized[len(prefix):]
+                if candidate in numeric_columns:
+                    return candidate
+
+        for column in numeric_columns:
+            if column in normalized or normalized in column:
+                return column
+
+    return choose_preferred_metric(numeric_columns)
+
+
+def normalize_follow_up_dimension(dimension_name: Optional[str], categorical_columns: List[str]) -> Optional[str]:
+    if dimension_name:
+        normalized = str(dimension_name).strip().lower()
+        if normalized in categorical_columns:
+            return normalized
+
+        for column in categorical_columns:
+            if column in normalized or normalized in column:
+                return column
+
+    return choose_preferred_dimension(categorical_columns) if categorical_columns else None
+
+
+def build_grounded_follow_up_questions(
+    widgets: List[Dict[str, Any]],
+    plan: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    dataset_profile = get_dataset_profile()
+    numeric_columns = cast(List[str], dataset_profile.get("numeric_columns", []))
+    categorical_columns = cast(List[str], dataset_profile.get("categorical_columns", []))
+    date_columns = cast(List[str], dataset_profile.get("date_columns", []))
+
+    if not numeric_columns:
+        return cast(List[str], dataset_profile.get("example_prompts", []))[:3]
+
+    primary_metric = choose_preferred_metric(numeric_columns)
+    primary_dimension = choose_preferred_dimension(categorical_columns) if categorical_columns else None
+    date_column = date_columns[0] if date_columns else None
+
+    for widget in widgets:
+        widget_y = widget.get("y_axis")
+        if widget_y:
+            primary_metric = normalize_follow_up_metric(str(widget_y), numeric_columns)
+            break
+
+    for widget in widgets:
+        widget_x = str(widget.get("x_axis") or "")
+        normalized_dimension = normalize_follow_up_dimension(widget_x, categorical_columns)
+        if normalized_dimension:
+            primary_dimension = normalized_dimension
+            break
+
+    for widget in widgets:
+        widget_x = str(widget.get("x_axis") or "")
+        if widget_x in date_columns or is_dateish_name(widget_x):
+            date_column = widget_x if widget_x in cast(List[str], dataset_profile.get("columns", [])) else date_column
+            break
+
+    prompts = build_local_follow_up_questions(primary_metric, primary_dimension, date_column)
+
+    secondary_metric = next((column for column in numeric_columns if column != primary_metric), None)
+    secondary_dimension = next((column for column in categorical_columns if column != primary_dimension), None)
+
+    if primary_dimension and secondary_metric:
+        prompts.append(
+            f"How does {format_column_label(secondary_metric)} compare across {format_column_label(primary_dimension)}?"
+        )
+
+    if primary_dimension and secondary_dimension:
+        prompts.append(
+            f"Filter to the top {format_column_label(primary_dimension)} and compare {format_column_label(primary_metric)} across {format_column_label(secondary_dimension)}."
+        )
+
+    if date_column:
+        prompts.append(
+            f"Which periods show the sharpest change in {format_column_label(primary_metric)} over time?"
+        )
+
+    unique_prompts: List[str] = []
+    for prompt in prompts:
+        cleaned = str(prompt).strip()
+        if cleaned and cleaned not in unique_prompts:
+            unique_prompts.append(cleaned)
+
+    return unique_prompts[:3] or cast(List[str], dataset_profile.get("example_prompts", []))[:3]
 
 
 async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
@@ -1402,7 +1568,7 @@ async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str
                 {
                     "id": "metric_trend",
                     "title": f"{format_column_label(primary_metric).title()} Over Time",
-                    "chart_type": "area",
+                    "chart_type": "line",
                     "sql": (
                         f"SELECT {time_bucket_sql}, {aggregate}({primary_metric_sql}) AS {metric_alias} "
                         f"FROM {quote_identifier(active_table)}{where_clause} "
@@ -1511,20 +1677,38 @@ async def build_local_dashboard_plan(query: str, history: Optional[List[Dict[str
         )
 
     if not widgets and primary_dimension:
-        widgets.append(
-            {
-                "id": "fallback_compare",
-                "title": f"{format_column_label(primary_metric).title()} by {format_column_label(primary_dimension).title()}",
-                "chart_type": "bar",
-                "sql": (
-                    f"SELECT {quote_identifier(primary_dimension)} AS {primary_dimension}, {aggregate}({primary_metric_sql}) AS {metric_alias} "
-                    f"FROM {quote_identifier(active_table)}{where_clause} "
-                    f"GROUP BY {quote_identifier(primary_dimension)} ORDER BY {metric_alias} DESC LIMIT 12"
-                ),
-                "x_axis": primary_dimension,
-                "y_axis": metric_alias,
-            }
-        )
+        # Heuristic for Radar: if we have multiple metrics and a category
+        if len(metrics) >= 3:
+            widgets.append(
+                {
+                    "id": "radar_overview",
+                    "title": f"Metric Comparison by {format_column_label(primary_dimension).title()}",
+                    "chart_type": "radar",
+                    "sql": (
+                        f"SELECT {quote_identifier(primary_dimension)} AS {primary_dimension}, "
+                        f"{', '.join([f'{aggregate_for_metric(m)}({quote_identifier(m)}) AS {alias_for_metric(m, aggregate_for_metric(m))}' for m in metrics[:5]])} "
+                        f"FROM {quote_identifier(active_table)}{where_clause} "
+                        f"GROUP BY {quote_identifier(primary_dimension)} LIMIT 10"
+                    ),
+                    "x_axis": primary_dimension,
+                    "y_axis": alias_for_metric(metrics[0], aggregate_for_metric(metrics[0])),
+                }
+            )
+        else:
+            widgets.append(
+                {
+                    "id": "fallback_compare",
+                    "title": f"{format_column_label(primary_metric).title()} by {format_column_label(primary_dimension).title()}",
+                    "chart_type": "bar",
+                    "sql": (
+                        f"SELECT {quote_identifier(primary_dimension)} AS {primary_dimension}, {aggregate}({primary_metric_sql}) AS {metric_alias} "
+                        f"FROM {quote_identifier(active_table)}{where_clause} "
+                        f"GROUP BY {quote_identifier(primary_dimension)} ORDER BY {metric_alias} DESC LIMIT 12"
+                    ),
+                    "x_axis": primary_dimension,
+                    "y_axis": metric_alias,
+                }
+            )
 
     return {
         "dashboard_title": build_local_dashboard_title(query, primary_metric, dimensions),
@@ -1588,18 +1772,34 @@ def build_local_dashboard_summary(
                 top_row = max(numeric_rows, key=lambda row: row.get(y_axis, 0))
                 top_label = top_row.get(x_axis)
                 top_value = top_row.get(y_axis)
-                insight = (
-                    f"{top_label} is leading {format_column_label(y_axis)} at {format_metric_value(top_value, None)}."
-                )
+                bottom_row = min(numeric_rows, key=lambda row: row.get(y_axis, 0))
+                bottom_label = bottom_row.get(x_axis)
+                bottom_value = bottom_row.get(y_axis)
+                spread_ratio = 0.0
+                if is_numeric_value(top_value) and is_numeric_value(bottom_value) and top_value:
+                    spread_ratio = abs(top_value - bottom_value) / abs(top_value)
+
+                if spread_ratio < 0.03:
+                    insight = (
+                        f"{top_label} is narrowly ahead on {format_column_label(y_axis)} at {format_metric_value(top_value, None)}, "
+                        f"with the visible segments clustered tightly together."
+                    )
+                    recommendation = (
+                        f"Treat {format_column_label(x_axis)} as a close race and test what could lift {bottom_label} by the small gap in {format_column_label(y_axis)}."
+                    )
+                else:
+                    insight = (
+                        f"{top_label} is leading {format_column_label(y_axis)} at {format_metric_value(top_value, None)}."
+                    )
+                    recommendation = (
+                        f"Double down on {top_label} while reviewing why {bottom_label} trails on {format_column_label(y_axis)}."
+                    )
+
                 widget_insights.append({"id": widget["id"], "insight": insight})
                 if len(summary_parts) < 3:
                     summary_parts.append(insight)
                 if len(numeric_rows) > 1:
-                    bottom_row = min(numeric_rows, key=lambda row: row.get(y_axis, 0))
-                    bottom_label = bottom_row.get(x_axis)
-                    recommendations.append(
-                        f"Double down on {top_label} while reviewing why {bottom_label} trails on {format_column_label(y_axis)}."
-                    )
+                    recommendations.append(recommendation)
 
     if not summary_parts:
         summary_parts.append("The dashboard was generated from local query heuristics using the current dataset.")
@@ -1611,8 +1811,7 @@ def build_local_dashboard_summary(
             "Use a follow-up filter to compare how the picture changes for a narrower slice of the data.",
         ]
 
-    raw_prompts = cast(List[str], plan.get("follow_up_questions", []))
-    follow_up_questions = raw_prompts[:3] or cast(Any, get_dataset_profile()).get("example_prompts", [])
+    follow_up_questions = build_grounded_follow_up_questions(widgets, plan)
     return {
         "executive_summary": " ".join(cast(List[str], summary_parts)[:3]),
         "recommendations": cast(List[str], recommendations)[:3],
@@ -1698,7 +1897,7 @@ Current table: {dataset_profile["table"]}
 Schema: {dataset_profile["schema"]}
 Row count: {dataset_profile["row_count"]}
 
-⚠️ VALID COLUMNS — use ONLY these exact names, no others:
+VALID COLUMNS - use only these exact names, no others:
   {', '.join(dataset_profile['columns'])}
 
 Numeric columns: {dataset_profile["numeric_columns"]}
@@ -1721,7 +1920,7 @@ Return JSON only in this shape:
     {{
       "id": "stable_id",
       "title": "Widget title",
-      "chart_type": "line|area|multi_line|bar|stacked_bar|pie|treemap|scatter|table",
+      "chart_type": "line|area|multi_line|bar|stacked_bar|pie|treemap|scatter|radar|composed|table",
       "sql": "SELECT ...",
       "x_axis": "column_name",
       "y_axis": "column_name"
@@ -1736,7 +1935,14 @@ Rules:
 - Use only SQLite SELECT or WITH statements. No semicolons. No markdown.
 - KPI SQL must return one row. Alias the main value column to "value" when possible.
 - Widget SQL should usually return 3 to 12 rows unless the user clearly asked for detail.
-- Use line/area for time series (multi_line when multiple metrics are returned), bar/stacked_bar for comparisons (stacked when multiple metrics are returned), pie only for parts of a whole with <= 6 slices, scatter for numeric correlation, table for detailed drill-downs.
+- Chart Selection Guide:
+    - line/area: for time series (multi_line for multiple metrics).
+    - bar/stacked_bar: for categorical comparisons (stacked for multiple metrics).
+    - **radar**: best for comparing at least 3-5 different numeric metrics (e.g. views, likes, shares) across a single category.
+    - **composed**: best for showing a primary trend (Line) and a secondary volume/count (Bar) on the same date-axis.
+    - pie: only for parts of a whole with <= 6 slices.
+    - scatter: for numeric correlation between two columns.
+    - table: for detailed drill-downs.
 - Favor dashboards that include a trend, a segment comparison, and one supporting view when the request is broad.
 - If the request is a follow-up like "now filter this", apply the conversation history.
 - If the request cannot be answered from this dataset, set cannot_answer to true and leave kpis/widgets empty.
@@ -1915,7 +2121,7 @@ Executed widget results (truncated rows only):
 
 Return JSON only:
 {{
-  "executive_summary": "2-3 sentence summary for a CXO. You MUST use **bold** markdown for the most important numbers and segment names. Example: **North America** led with **$2.4M** in revenue—**34%** above the global average.",
+  "executive_summary": "2-3 sentence summary for a CXO. You MUST use **bold** markdown for the most important numbers and segment names. Example: **North America** led with **$2.4M** in revenue, **34%** above the global average.",
   "recommendations": ["specific action 1 with a number or segment", "action 2", "action 3"],
   "widget_insights": [{{"id": "widget_id", "insight": "one sentence insight"}}],
   "kpi_insights": [{{"title": "KPI title", "insight": "one sentence insight"}}],
@@ -1924,9 +2130,11 @@ Return JSON only:
 
 Rules:
 - Use only the values and rows provided above.
-- Mention actual figures from the data — never guess or estimate.
+- Mention actual figures from the data and never guess or estimate.
 - Bold (with **) the top metric figure and the leading segment name.
 - Keep recommendations specific and business-oriented.
+- If category results are close, describe the lead as narrow or tightly clustered rather than dominant.
+- Only use words like "majority" or "dominates" when the data clearly supports them.
 - If the evidence is weak or partial, say so instead of inventing details.
 """
 
@@ -2041,9 +2249,7 @@ async def process_dashboard_query(query: str, history: Optional[List[Dict[str, s
             if kpi["title"] in kpi_insights:
                 kpi["insight"] = kpi_insights[kpi["title"]]
 
-        follow_up_questions = summary.get("follow_up_questions", [])[:3] or plan.get("follow_up_questions", [])[:3]
-        if not follow_up_questions:
-            follow_up_questions = get_dataset_profile().get("example_prompts", [])
+        follow_up_questions = build_grounded_follow_up_questions(widgets, plan)
 
         return {
             "dashboard_title": plan.get("dashboard_title") or query,
@@ -2157,6 +2363,7 @@ async def health():
             "columns": dataset_profile.get("columns", []),
             "schema": dataset_profile.get("schema", active_schema or ""),
             "example_prompts": dataset_profile.get("example_prompts", []),
+            "sample_data": dataset_profile.get("sample_data", []),
             "llm_client": client is not None
         }
     except Exception as e:
@@ -2197,8 +2404,20 @@ async def get_insights():
             
     return {"insights": cards}
 
+def is_reset_enabled(request: Request) -> bool:
+    if env_flag("LUMINA_ALLOW_RESET", "INSIGHTAI_ALLOW_RESET"):
+        return True
+    client_host = request.client.host if request.client else ""
+    return client_host in {"127.0.0.1", "::1"}
+
+
 @app.get("/api/reset")
-async def reset_dataset():
+async def reset_dataset(request: Request):
+    if not is_reset_enabled(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Reset is disabled outside local development. Set LUMINA_ALLOW_RESET=true to enable it.",
+        )
     reset_dataset_state()
     return {"message": "System reset to clean Lumina state", "table": None}
 
@@ -2270,6 +2489,7 @@ async def upload_csv(file: UploadFile = File(...)):
             "columns": df.columns.tolist(),
             "example_prompts": get_dataset_profile().get("example_prompts", []),
             "sample_data": sample_data,
+            "llm_client": client is not None,
             "auto_insights": []
         }
     except HTTPException:
@@ -2287,13 +2507,13 @@ async def query_data(request: QueryRequest):
     if not active_schema or "No data" in active_schema:
         print("QUERY REJECTED: No data loaded.")
         return JSONResponse(status_code=400, content={"detail": "No dataset found. Please upload a CSV first to start analyzing."})
-        
-    if not client:
-         raise HTTPException(status_code=500, detail="LLM_API_KEY is missing. Please set it in the backend.")
          
     try:
         print(f"Incoming query: {request.query}")
-        res = await process_dashboard_query(request.query, request.history)
+        if client is None:
+            res = await build_local_dashboard_response(request.query, request.history)
+        else:
+            res = await process_dashboard_query(request.query, request.history)
         print(f"Query processed successfully: {res.get('dashboard_title')}")
 
         # Construct response manually without response_model for robustness

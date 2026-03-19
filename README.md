@@ -1,48 +1,49 @@
-# InsightAI
+# Lumina
 
-InsightAI is a conversational BI dashboard for CSV datasets. A user asks a question in plain English, the backend plans a dashboard, executes validated SQLite `SELECT` queries, and the frontend renders executive-ready KPIs, charts, and recommendations.
+Lumina turns raw CSV files into decision-ready dashboards and executive briefings. Upload a dataset, ask a business question in plain English, and review KPIs, charts, recommendations, and follow-up questions backed by read-only SQL.
 
-## What It Does
+## Why Lumina
 
-- Conversational dashboard generation with multi-step orchestration
+- CSV-first workflow with almost no setup
 - Safe SQL execution against a local SQLite dataset
-- CSV upload and schema-aware prompt suggestions
-- Interactive dashboard rendering with executive summaries
-- Follow-up questions and lightweight conversation memory
-- PDF export from the dashboard view
-- Full CSV export for each widget's filtered result set
+- Schema preview, sample rows, and suggested prompts after upload
+- Executive summary, chart insights, and export-ready dashboard views
+- Local fallback mode when no LLM key is configured
 
-## What It Does Not Do
+## Product Flow
 
-- No vector database or retrieval-augmented generation
-- No autonomous agent swarm or long-running agent workflow engine
-- No write access to the analytics database; generated queries are restricted to read-only SQL
+1. Upload a CSV.
+2. Lumina normalizes the columns, loads the data into SQLite, and profiles the schema.
+3. A planner creates KPIs, widgets, and safe query plans.
+4. The backend validates and executes only read-only SQL.
+5. The frontend renders the dashboard, summary, and follow-up questions.
 
-## Architecture
+## Stack
 
-1. `backend/main.py` loads the active dataset into SQLite and exposes the API.
-2. The planner LLM pass proposes KPIs, widgets, chart types, and SQL.
-3. The backend sanitizes and executes only safe `SELECT` or `WITH` statements.
-4. A second LLM pass writes the executive summary, recommendations, and widget insights from real query results.
-5. `frontend/src/components` renders the dashboard and export actions.
+- Backend: FastAPI, pandas, SQLite, OpenAI-compatible LLM client
+- Frontend: Next.js App Router, TypeScript, Tailwind CSS, Recharts, Framer Motion
 
-## Dataset Uploads
+## Project Layout
 
-InsightAI does not bundle a default dataset. Upload a CSV through the UI to begin analysis and generate dashboards.
+- `backend/main.py`: API surface, dataset loading, SQL validation, dashboard planning
+- `backend/test_*.py`: backend coverage for upload, querying, and fallback behavior
+- `frontend/src/components/Dashboard.tsx`: workspace shell, dataset state, history, prompt bar
+- `frontend/src/components/ExecutiveDashboardView.tsx`: dashboard rendering, exports, SQL reveal
+- `frontend/src/components/DashboardRenderer.tsx`: chart and table rendering
 
 ## Local Setup
 
 ### Backend
 
-1. Copy [backend/.env.example](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/backend/.env.example) to `backend/.env`.
-2. Add a fresh provider key to `LLM_API_KEY`.
-3. Install dependencies from [backend/requirements.txt](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/backend/requirements.txt).
+1. Copy `backend/.env.example` to `backend/.env`.
+2. Add `LLM_API_KEY` if you want LLM-backed planning.
+3. Install dependencies from `backend/requirements.txt`.
 4. Run `uvicorn main:app --reload` from the `backend` directory.
 
 ### Frontend
 
-1. Copy [frontend/.env.example](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/frontend/.env.example) to `frontend/.env.local`.
-2. Run `npm install` from `frontend`.
+1. Copy `frontend/.env.example` to `frontend/.env.local`.
+2. Run `npm install` in `frontend`.
 3. Run `npm run dev`.
 4. Open `http://localhost:3000`.
 
@@ -50,46 +51,53 @@ InsightAI does not bundle a default dataset. Upload a CSV through the UI to begi
 
 ### Backend
 
-- `LLM_API_KEY`: required provider key
-- `LLM_BASE_URL`: OpenAI-compatible provider base URL
+- `LLM_API_KEY`: provider key for the OpenAI-compatible endpoint
+- `LLM_BASE_URL`: provider base URL
 - `LLM_MODEL`: model identifier
 - `API_CORS_ORIGINS`: comma-separated list of allowed frontend origins
+- `LUMINA_DISABLE_LLM`: optional flag to force local fallback mode
+- `LUMINA_ALLOW_RESET`: optional flag to enable `/api/reset` outside local development
+
+Legacy environment aliases are still accepted for backward compatibility.
 
 ### Frontend
 
 - `NEXT_PUBLIC_API_BASE_URL`: public backend base URL for browser requests
 
-If `NEXT_PUBLIC_API_BASE_URL` is omitted outside localhost, the frontend falls back to the current origin, which works for reverse-proxy deployments.
+If `NEXT_PUBLIC_API_BASE_URL` is omitted on localhost, the frontend uses the local backend. For split or reverse-proxy deployments, set it explicitly.
+
+## Quality Checks
+
+```bash
+cd backend && pytest -q
+cd frontend && npm run lint
+cd frontend && npm run typecheck
+cd frontend && npm run build
+```
 
 ## Deployment
 
 ### Docker
 
-Use [docker-compose.yml](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/docker-compose.yml):
-
 ```bash
 docker compose up --build
 ```
 
-This starts:
+This starts the frontend on `http://localhost:3000` and the backend on `http://localhost:8000`.
 
-- frontend on `http://localhost:3000`
-- backend on `http://localhost:8000`
+### Split Deployment
 
-### Separate Frontend and Backend Hosts
-
-1. Deploy the backend from [backend/Dockerfile](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/backend/Dockerfile) or run `uvicorn main:app --host 0.0.0.0 --port 8000`.
-2. Set `API_CORS_ORIGINS` on the backend to your deployed frontend URL.
-3. Deploy the frontend from [frontend/Dockerfile](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/frontend/Dockerfile).
+1. Deploy the backend with `backend/Dockerfile` or `uvicorn main:app --host 0.0.0.0 --port 8000`.
+2. Set `API_CORS_ORIGINS` to your frontend URL.
+3. Deploy the frontend with `frontend/Dockerfile`.
 4. Build the frontend with `NEXT_PUBLIC_API_BASE_URL` set to the public backend URL.
 
-### Recommended Pre-Push Checks
+## Demo Notes
 
-```bash
-cd backend && pytest
-cd frontend && npm run lint && npm run build
-```
+- Upload a CSV and use the built-in starter prompts.
+- Show the schema preview, sample rows, and visible SQL to reinforce trust.
+- Export the finished dashboard as a briefing once the first answer is ready.
 
 ## Security Note
 
-If an API key was ever committed to this workspace, revoke it and issue a new one. The tracked `.env` has been replaced with a placeholder and [`.gitignore`](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/.gitignore) now excludes backend secrets.
+If an API key was ever committed to this workspace, revoke it and issue a new one. `.gitignore` excludes backend secrets, but rotated credentials are still the safest move.

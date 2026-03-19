@@ -1,9 +1,9 @@
 import os
 import pytest
 
-os.environ.setdefault("INSIGHTAI_DISABLE_LLM", "true")
-os.environ.setdefault("INSIGHTAI_ALLOW_DEMO", "true")
-os.environ.setdefault("INSIGHTAI_TEST_DATA", "true")
+os.environ.setdefault("LUMINA_DISABLE_LLM", "true")
+os.environ.setdefault("LUMINA_ALLOW_DEMO", "true")
+os.environ.setdefault("LUMINA_TEST_DATA", "true")
 
 import main  # noqa: E402
 

@@ -1,3 +1,5 @@
+import { DatasetRecord } from "@/types";
+
 const DEFAULT_LOCAL_API_BASE_URL = "http://localhost:8000";
 
 function trimTrailingSlash(value: string) {
@@ -37,8 +39,12 @@ export function buildApiUrl(path: string) {
 export interface ExplainChartRequest {
     title: string;
     chart_type: string;
-    data: any[];
+    data: DatasetRecord[];
     insight?: string;
+}
+
+interface ApiErrorPayload {
+    detail?: string;
 }
 
 export async function explainChart(req: ExplainChartRequest): Promise<{ explanation: string }> {
@@ -48,7 +54,7 @@ export async function explainChart(req: ExplainChartRequest): Promise<{ explanat
         body: JSON.stringify(req),
     });
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = await res.json().catch(() => ({} as ApiErrorPayload));
         throw new Error(err.detail || "Failed to generate chart explanation");
     }
     return res.json();

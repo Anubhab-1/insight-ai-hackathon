@@ -17,10 +17,10 @@ interface PromptCard {
 }
 
 const FEATURE_PILLS = [
-    { icon: ShieldCheck, label: "Grounded SQL", color: "#10b981", bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.2)" },
-    { icon: BrainCircuit, label: "Agentic Self-Healing", color: "#06b6d4", bg: "rgba(6,182,212,0.1)", border: "rgba(6,182,212,0.2)" },
-    { icon: BarChart3, label: "Bento Dashboards", color: "#8b5cf6", bg: "rgba(139,92,246,0.1)", border: "rgba(139,92,246,0.2)" },
-    { icon: Zap, label: "Real-time Narration", color: "#c026d3", bg: "rgba(192,38,211,0.1)", border: "rgba(192,38,211,0.2)" },
+    { icon: ShieldCheck, label: "Safe SQL", color: "#10b981", bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.2)" },
+    { icon: BrainCircuit, label: "Local Fallback", color: "#06b6d4", bg: "rgba(6,182,212,0.1)", border: "rgba(6,182,212,0.2)" },
+    { icon: BarChart3, label: "Executive Dashboards", color: "#8b5cf6", bg: "rgba(139,92,246,0.1)", border: "rgba(139,92,246,0.2)" },
+    { icon: Zap, label: "Fast Briefings", color: "#c026d3", bg: "rgba(192,38,211,0.1)", border: "rgba(192,38,211,0.2)" },
 ];
 
 export default function ExecutiveLanding({
@@ -53,17 +53,17 @@ export default function ExecutiveLanding({
                         <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] backdrop-blur-md sm:px-4 sm:py-2"
                             style={{ borderColor: "rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.08)", color: "#c4b5fd" }}>
                             <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-400" />
-                            Neural Intelligence Platform
+                            Executive Analytics Workspace
                         </div>
 
                         {/* Heading */}
                         <h1 className="text-3xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">
-                            Data that{" "}
-                            <span className="nv-gradient-text">thinks for itself.</span>
+                            Turn raw CSV into a{" "}
+                            <span className="nv-gradient-text">board-ready dashboard.</span>
                         </h1>
 
                         <p className="max-w-xl text-sm leading-relaxed sm:text-base sm:leading-8" style={{ color: "#a89bc2" }}>
-                            Lumina transforms raw CSV data into executive narratives and live dashboards through autonomous agentic SQL planning — no code, no configuration.
+                            Lumina helps teams upload a dataset, ask a business question, and leave with a grounded summary, clean charts, and clear next steps.
                         </p>
 
                         {/* Feature pills */}
@@ -99,11 +99,11 @@ export default function ExecutiveLanding({
                             style={{ background: "linear-gradient(135deg, #7c3aed, #c026d3)" }} />
                         <div className="relative flex h-44 w-44 items-center justify-center rounded-[2.5rem] border sm:h-56 sm:w-56 lg:h-64 lg:w-64"
                             style={{ borderColor: "rgba(139,92,246,0.2)", background: "rgba(9,7,20,0.8)" }}>
-                            {/* Neural pulse rings */}
+                            {/* Pulse rings */}
                             <div className="absolute inset-8 rounded-full border opacity-30"
-                                style={{ borderColor: "rgba(139,92,246,0.4)", animation: "neural-pulse 2.4s ease-in-out infinite" }} />
+                                style={{ borderColor: "rgba(139,92,246,0.4)", animation: "pulse-ring 2.4s ease-in-out infinite" }} />
                             <div className="absolute inset-10 rounded-full border opacity-20"
-                                style={{ borderColor: "rgba(6,182,212,0.5)", animation: "neural-pulse 2.4s ease-in-out infinite 0.8s" }} />
+                                style={{ borderColor: "rgba(6,182,212,0.5)", animation: "pulse-ring 2.4s ease-in-out infinite 0.8s" }} />
                             <Sparkles className="h-16 w-16 sm:h-20 sm:w-20 lg:h-24 lg:w-24" style={{ color: "#c4b5fd", animation: "float 7s ease-in-out infinite" }} />
                         </div>
                     </div>
@@ -122,7 +122,7 @@ export default function ExecutiveLanding({
                             </div>
                             <div>
                                 <p className="text-[10px] font-bold uppercase tracking-[0.24em] sm:text-[11px]" style={{ color: "#7c6fa0" }}>Source Connection</p>
-                                <h2 className="text-lg font-semibold text-white sm:text-2xl">Dataset Insight</h2>
+                                <h2 className="text-lg font-semibold text-white sm:text-2xl">Connected Dataset</h2>
                             </div>
                         </div>
                         {activeDataset && (
@@ -147,7 +147,7 @@ export default function ExecutiveLanding({
                                 </div>
                             </div>
                             <div className="space-y-2.5">
-                                <p className="px-1 text-[10px] font-bold uppercase tracking-widest sm:text-xs" style={{ color: "#7c6fa0" }}>Quick Exploration</p>
+                                <p className="px-1 text-[10px] font-bold uppercase tracking-widest sm:text-xs" style={{ color: "#7c6fa0" }}>Starter Questions</p>
                                 {promptCards.slice(0, 2).map((item) => (
                                     <button key={item.label} onClick={() => onRunPrompt(item.prompt)}
                                         className="flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-all hover:border-violet-500/30 sm:px-5 sm:py-4"
@@ -175,8 +175,8 @@ export default function ExecutiveLanding({
                 {/* Proactive Insights */}
                 <section className="nv-card nv-card-hover rounded-[2rem] p-6 sm:p-8">
                     <div className="mb-5 sm:mb-6">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.24em] sm:text-[11px]" style={{ color: "#7c6fa0" }}>Intelligence Engine</p>
-                        <h2 className="mt-1 text-lg font-semibold text-white sm:text-2xl">Proactive Discoveries</h2>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.24em] sm:text-[11px]" style={{ color: "#7c6fa0" }}>Auto Briefing</p>
+                        <h2 className="mt-1 text-lg font-semibold text-white sm:text-2xl">Early Signals</h2>
                     </div>
 
                     {loadingInsights ? (
@@ -212,3 +212,4 @@ export default function ExecutiveLanding({
         </div>
     );
 }
+

@@ -2,6 +2,7 @@ backend/.env
 backend/venv/
 backend/__pycache__/
 backend/insightai.db
+backend/*.db
 backend/.pytest_cache/
 
 frontend/node_modules/

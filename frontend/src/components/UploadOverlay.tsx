@@ -5,6 +5,10 @@ import { UploadCloud, File, AlertCircle, Sparkles, Loader2, Zap } from "lucide-r
 import { UploadResponse } from "@/types";
 import { buildApiUrl } from "@/lib/api";
 
+interface ApiErrorPayload {
+    detail?: string;
+}
+
 export default function UploadOverlay({ onUploadSuccess }: { onUploadSuccess: (data: UploadResponse) => void }) {
     const [file, setFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
@@ -33,7 +37,8 @@ export default function UploadOverlay({ onUploadSuccess }: { onUploadSuccess: (d
             const text = await res.text();
             let data: UploadResponse | null = null;
             try { data = JSON.parse(text) as UploadResponse; } catch {}
-            if (!res.ok) throw new Error((data as any)?.detail || "Upload failed");
+            const errorPayload = data as ApiErrorPayload | null;
+            if (!res.ok) throw new Error(errorPayload?.detail || "Upload failed");
             if (!data) throw new Error("Upload returned invalid JSON.");
             onUploadSuccess(data);
         } catch (err) {
@@ -94,10 +99,10 @@ export default function UploadOverlay({ onUploadSuccess }: { onUploadSuccess: (d
                         </div>
 
                         <h2 className="nv-gradient-text text-2xl font-bold tracking-tight sm:text-3xl">
-                            Lumina Core
+                            Upload a Dataset
                         </h2>
                         <p className="mx-auto mt-2 max-w-xs text-sm leading-relaxed sm:text-sm" style={{ color: "#7c6fa0" }}>
-                            Drop a CSV dataset to initialize neural analysis and generate live dashboards.
+                            Drop in a CSV to load it into Lumina and start generating dashboards.
                         </p>
                     </div>
 
@@ -132,7 +137,7 @@ export default function UploadOverlay({ onUploadSuccess }: { onUploadSuccess: (d
                                 <div>
                                     <p className="text-sm font-semibold text-white sm:text-base">{file.name}</p>
                                     <p className="mt-1 text-xs sm:text-sm" style={{ color: "#7c6fa0" }}>
-                                        {(file.size / 1024).toFixed(1)} KB — Ready to analyze
+                                        {(file.size / 1024).toFixed(1)} KB - Ready to analyze
                                     </p>
                                 </div>
                             </div>
@@ -167,12 +172,12 @@ export default function UploadOverlay({ onUploadSuccess }: { onUploadSuccess: (d
                         {loading ? (
                             <>
                                 <Loader2 className="h-4 w-4 animate-spin sm:h-5 sm:w-5" />
-                                Synchronizing Intelligence...
+                                Preparing dataset...
                             </>
                         ) : (
                             <>
                                 <Zap className="h-4 w-4 sm:h-5 sm:w-5" />
-                                Initialize Neural Analysis
+                                Analyze Dataset
                             </>
                         )}
                     </button>
@@ -180,7 +185,7 @@ export default function UploadOverlay({ onUploadSuccess }: { onUploadSuccess: (d
 
                 {/* Bottom tagline */}
                 <p className="mt-4 text-center text-xs" style={{ color: "rgba(124,111,160,0.6)" }}>
-                    All processing happens locally in your session
+                    Your file stays in this local workspace
                 </p>
             </div>
         </div>

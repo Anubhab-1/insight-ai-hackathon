@@ -1,20 +1,25 @@
-# InsightAI Frontend
+# Lumina Frontend
 
-This folder contains the Next.js dashboard client for InsightAI.
+This package contains the Next.js interface for Lumina.
 
-## Run
+## What Lives Here
+
+- `src/app`: app shell, metadata, and global styles
+- `src/components/Dashboard.tsx`: workspace state, upload flow, prompt bar, and history
+- `src/components/ExecutiveLanding.tsx`: landing experience and starter prompts
+- `src/components/ExecutiveDashboardView.tsx`: dashboard display, SQL reveal, and exports
+- `src/components/DashboardRenderer.tsx`: chart and table rendering
+
+## Commands
 
 ```bash
 npm install
 npm run dev
+npm run lint
+npm run typecheck
+npm run build
 ```
 
-The app expects the FastAPI backend on `http://localhost:8000`.
+By default the app expects the backend at `http://localhost:8000`. Set `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local` if the API lives elsewhere.
 
-## Key UI Areas
-
-- [src/components/Dashboard.tsx](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/frontend/src/components/Dashboard.tsx): shell, dataset state, query history
-- [src/components/ExecutiveLanding.tsx](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/frontend/src/components/ExecutiveLanding.tsx): landing experience and demo prompts
-- [src/components/ExecutiveDashboardView.tsx](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/frontend/src/components/ExecutiveDashboardView.tsx): dashboard rendering, PDF export, CSV export actions
-
-Repository-level setup and architecture notes live in the root [README.md](/c:/Users/anubhab%20samanta/.gemini/antigravity/scratch/InsightAI/README.md).
+Repository-wide setup, architecture notes, and deployment guidance live in the root `README.md`.

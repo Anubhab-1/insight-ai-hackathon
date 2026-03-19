@@ -1,31 +1,33 @@
-import httpx
+import asyncio
+import os
 import json
+from dotenv import load_dotenv
+from main import process_dashboard_query, client, LLM_MODEL, _init_client
 
-def verify_backend_query():
-    url = "http://127.0.0.1:8001/api/query"
-    payload = {
-        "query": "Show me total views by region",
-        "history": []
-    }
+async def verify():
+    load_dotenv()
+    global client
+    if client is None:
+        client = _init_client()
     
-    print(f"Calling backend at {url}...")
-    try:
-        # Increase timeout as Qwen 3.5 might be slow
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(url, json=payload)
-            print(f"Status Code: {response.status_code}")
-            if response.status_code == 200:
-                data = response.json()
-                print("Success! Backend returned dashboard data.")
-                print(f"Dashboard Title: {data.get('dashboard_title')}")
-                print(f"KPIs Count: {len(data.get('kpis', []))}")
-                print(f"Widgets Count: {len(data.get('widgets', []))}")
-                # Print a snippet of the executive summary
-                print(f"Summary: {data.get('executive_summary')[:100]}...")
-            else:
-                print(f"Error: {response.text}")
-    except Exception as e:
-        print(f"Error: {e}")
+    if client is None:
+        print("Error: LLM client not initialized. Check .env")
+        return
+
+    queries = [
+        "Show me a radar chart comparing average views, likes, and comments for each category.",
+        "Show a composed chart of total views (bar) and average sentiment score (line) over time."
+    ]
+
+    for query in queries:
+        print(f"\nTesting Query: {query}")
+        try:
+            res = await process_dashboard_query(query)
+            print(f"Dashboard Title: {res.get('dashboard_title')}")
+            for i, widget in enumerate(res.get('widgets', [])):
+                print(f"Widget {i+1}: {widget.get('title')} -> Chart Type: {widget.get('chart_type')}")
+        except Exception as e:
+            print(f"Error: {e}")
 
 if __name__ == "__main__":
-    verify_backend_query()
+    asyncio.run(verify())

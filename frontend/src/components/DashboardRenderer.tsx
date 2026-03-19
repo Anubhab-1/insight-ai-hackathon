@@ -1,10 +1,11 @@
 import { ChartConfig } from "@/types";
 import {
     LineChart, Line, BarChart, Bar, PieChart, Pie, ScatterChart, Scatter,
-    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, AreaChart, Area, Treemap, Brush
+    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, AreaChart, Area, Treemap, Brush, LabelList,
+    Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ComposedChart
 } from "recharts";
 
-// ── Neural Void Palette ──
+// Shared chart palette
 const COLORS = [
     '#8b5cf6', // Violet
     '#06b6d4', // Cyan
@@ -15,6 +16,49 @@ const COLORS = [
 ];
 
 type ChartRow = Record<string, string | number | boolean | null | undefined>;
+type TooltipEntry = {
+    color?: string;
+    fill?: string;
+    name?: string;
+    value?: ChartRow[string];
+};
+
+interface TooltipContentProps {
+    active?: boolean;
+    payload?: TooltipEntry[];
+    label?: string | number;
+}
+
+interface LegendEntry {
+    color?: string;
+    value?: string;
+}
+
+interface LegendContentProps {
+    payload?: ReadonlyArray<LegendEntry>;
+}
+
+interface TreemapNodeProps {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    index?: number;
+    name?: string | number;
+}
+
+interface PieLabelProps {
+    percent?: number;
+}
+
+interface SeriesDistribution {
+    min: number;
+    max: number;
+    sum: number;
+    spreadRatio: number;
+    topShare: number;
+    allPositive: boolean;
+}
 
 function isNumericValue(value: ChartRow[string]) {
     return typeof value === "number" && Number.isFinite(value);
@@ -72,7 +116,7 @@ function detectFormat(key?: string) {
 }
 
 function formatValue(value: ChartRow[string], key?: string, compact = false) {
-    if (value === null || value === undefined) return "—";
+    if (value === null || value === undefined) return "-";
     if (typeof value === "boolean") return value ? "Yes" : "No";
     if (typeof value === "number") {
         const format = detectFormat(key);
@@ -91,6 +135,27 @@ function formatValue(value: ChartRow[string], key?: string, compact = false) {
         return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
     }
     return String(value);
+}
+
+function summarizeSeriesDistribution(data: ChartRow[], key: string): SeriesDistribution | null {
+    const values = data.map((row) => coerceNumber(row[key])).filter((value): value is number => value !== null);
+    if (values.length < 2) return null;
+
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const positiveValues = values.filter((value) => value > 0);
+    const sum = positiveValues.reduce((total, value) => total + value, 0);
+    const spreadRatio = max === 0 ? 0 : Math.abs(max - min) / Math.abs(max);
+    const topShare = sum > 0 ? max / sum : 0;
+
+    return {
+        min,
+        max,
+        sum,
+        spreadRatio,
+        topShare,
+        allPositive: values.every((value) => value >= 0),
+    };
 }
 
 function sortChartData(data: ChartRow[], config: ChartConfig) {
@@ -178,6 +243,12 @@ function deriveRenderableConfig(data: ChartRow[], config: ChartConfig): ChartCon
 
     if (type === "stacked_bar" && numericColumns.length === 0) type = "bar";
     if (type === "pie" && data.length > 6) type = "treemap";
+    if (type === "radar" && numericColumns.length < 3) type = "bar";
+
+    const distribution = yAxis ? summarizeSeriesDistribution(data, yAxis) : null;
+    if (type === "pie" && distribution && (distribution.spreadRatio < 0.12 || distribution.topShare < 0.35)) {
+        type = "bar";
+    }
 
     if (!numericColumns.includes(yAxis) && type !== "table" && type !== "treemap") {
         const numericCandidate = numericColumns.find((column) => column !== xAxis);
@@ -222,19 +293,20 @@ function buildSeriesData(data: ChartRow[], renderConfig: ChartConfig) {
     return { seriesData, seriesKeys: seriesKeys.slice(0, 8) };
 }
 
-// ── Neural Void Tooltip ──
-const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
+// Recharts tooltip
+const CustomTooltip = ({ active, payload, label }: TooltipContentProps) => {
+    const entries = payload ?? [];
+    if (active && entries.length > 0) {
         return (
             <div className="rounded-xl border border-violet-500/20 bg-[#090714]/90 p-3.5 text-xs shadow-[0_10px_40px_rgba(0,0,0,0.6)] backdrop-blur-xl">
                 <p className="mb-2 font-bold tracking-[0.1em] text-violet-400 uppercase">
                     {typeof label === "string" || typeof label === "number" ? label : "Data Point"}
                 </p>
                 <div className="space-y-1.5">
-                    {payload.map((entry: any, index: number) => (
+                    {entries.map((entry, index) => (
                         <div key={`item-${index}`} className="flex items-center gap-3">
                             <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: entry.color || entry.fill || COLORS[0], boxShadow: `0 0 8px ${entry.color || entry.fill || COLORS[0]}` }} />
-                            <span className="font-medium text-slate-400">{formatKeyLabel(entry.name)}:</span>
+                            <span className="font-medium text-slate-400">{formatKeyLabel(entry.name || "value")}:</span>
                             <span className="font-bold text-white">{formatValue(entry.value, entry.name)}</span>
                         </div>
                     ))}
@@ -245,17 +317,17 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     return null;
 };
 
-// ── Neural Void Legend ──
-const renderLegend = (props: any) => {
-    const { payload } = props;
+// Recharts legend
+const renderLegend = ({ payload }: LegendContentProps) => {
+    const entries = payload ?? [];
     return (
         <ul className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 pt-6">
-            {payload.map((entry: any, index: number) => (
+            {entries.map((entry, index) => (
                 <li key={`item-${index}`} className="flex items-center gap-2 group cursor-default">
                     <div className="h-1.5 w-1.5 rounded-full transition-transform group-hover:scale-125"
-                        style={{ backgroundColor: entry.color, boxShadow: `0 0 8px ${entry.color}` }} />
+                        style={{ backgroundColor: entry.color || COLORS[0], boxShadow: `0 0 8px ${entry.color || COLORS[0]}` }} />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-[#7c6fa0] group-hover:text-violet-300 transition-colors">
-                        {formatKeyLabel(entry.value)}
+                        {formatKeyLabel(entry.value || "series")}
                     </span>
                 </li>
             ))}
@@ -263,8 +335,19 @@ const renderLegend = (props: any) => {
     );
 };
 
+const renderTreemapNode = ({ x = 0, y = 0, width = 0, height = 0, index = 0, name }: TreemapNodeProps) => (
+    <g>
+        <rect x={x} y={y} width={width} height={height} fill={COLORS[index % COLORS.length]} fillOpacity={0.8} stroke="#04030a" />
+        {width > 60 && height > 30 && (
+            <text x={x + 6} y={y + 18} fill="white" fontSize={11} fontWeight={700} className="uppercase tracking-wider">
+                {String(name || "Unknown").slice(0, 12)}
+            </text>
+        )}
+    </g>
+);
+
 export default function DashboardRenderer({ data, config }: { data: ChartRow[], config: ChartConfig }) {
-    if (!data || data.length === 0) return <div className="text-slate-500 p-12 text-center rounded-[2rem] border-2 border-dashed border-violet-500/10 bg-violet-500/5">Source empty or unreachable.</div>;
+    if (!data || data.length === 0) return <div className="text-slate-500 p-12 text-center rounded-[2rem] border-2 border-dashed border-violet-500/10 bg-violet-500/5">No data returned for this view.</div>;
     
     const renderConfig = deriveRenderableConfig(data, config);
     const { seriesData, seriesKeys } = buildSeriesData(data, renderConfig);
@@ -288,6 +371,23 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
 
     const chartData = sortChartData(numericData, renderConfig);
     const sortedSeriesData = sortChartData(numericSeriesData, { ...renderConfig, type: "line" });
+    const primaryDistribution = renderConfig.yAxis ? summarizeSeriesDistribution(chartData, renderConfig.yAxis) : null;
+    const pieConvertedToBar = config.type === "pie" && renderConfig.type === "bar";
+    const shouldZoomComparison = Boolean(
+        renderConfig.type === "bar"
+        && primaryDistribution
+        && primaryDistribution.allPositive
+        && primaryDistribution.spreadRatio > 0
+        && primaryDistribution.spreadRatio < 0.12
+    );
+    const comparisonDomain: [number, number] | undefined = primaryDistribution
+        ? [Math.max(0, primaryDistribution.min * 0.995), primaryDistribution.max * 1.005]
+        : undefined;
+    const comparisonNote = pieConvertedToBar
+        ? "Switched to a ranked bar chart because these category shares are too close for a pie chart."
+        : shouldZoomComparison
+            ? "Scale zoomed to reveal a narrow spread across categories."
+            : null;
     
     const primaryColor = COLORS[0];
     const gridColor = "rgba(139, 92, 246, 0.05)";
@@ -305,6 +405,28 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
     const renderChart = () => {
         switch (renderConfig.type.toLowerCase()) {
             case 'line':
+                return (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: chartData.length > 8 ? 30 : 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                            <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis} tickFormatter={(v) => {
+                                const d = coerceDate(v);
+                                return d ? new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" }).format(d) : String(v);
+                            }} />
+                            <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
+                            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(139,92,246,0.2)', strokeWidth: 1 }} />
+                            <Legend content={renderLegend} />
+                            <Line type="monotone" dataKey={renderConfig.yAxis} name={renderConfig.yAxis} stroke={primaryColor} strokeWidth={2.5}
+                                dot={false} activeDot={{ r: 6, stroke: primaryColor, strokeWidth: 2, fill: '#04030a' }}
+                                animationDuration={1500} />
+                            {chartData.length > 8 && (
+                                <Brush dataKey={renderConfig.xAxis} height={22} travellerWidth={6}
+                                    stroke="rgba(139,92,246,0.25)" fill="rgba(9,7,20,0.8)"
+                                    className="recharts-brush" />
+                            )}
+                        </LineChart>
+                    </ResponsiveContainer>
+                );
             case 'area':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
@@ -323,7 +445,7 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
                             <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(139,92,246,0.2)', strokeWidth: 1 }} />
                             <Legend content={renderLegend} />
-                            <Area type="monotone" dataKey={renderConfig.yAxis} stroke={primaryColor} strokeWidth={2.5}
+                            <Area type="monotone" dataKey={renderConfig.yAxis} name={renderConfig.yAxis} stroke={primaryColor} strokeWidth={2.5}
                                 fillOpacity={1} fill="url(#nvGradient)" activeDot={{ r: 6, stroke: primaryColor, strokeWidth: 2, fill: '#04030a' }}
                                 animationDuration={1500} />
                             {chartData.length > 8 && (
@@ -357,24 +479,67 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
             case 'bar':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: chartData.length > 6 ? 40 : 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
-                            <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis}
-                                angle={chartData.length > 6 ? -35 : 0}
-                                textAnchor={chartData.length > 6 ? "end" : "middle"}
-                                interval={0}
-                                tickFormatter={(v) => {
-                                    const s = String(v);
-                                    return chartData.length > 8 ? s.slice(0, 10) : s;
-                                }} />
-                            <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
+                        <BarChart
+                            data={chartData}
+                            layout={shouldZoomComparison ? "vertical" : "horizontal"}
+                            margin={shouldZoomComparison
+                                ? { top: 10, right: 52, left: 12, bottom: 0 }
+                                : { top: 10, right: 10, left: 0, bottom: chartData.length > 6 ? 40 : 0 }}
+                        >
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={!shouldZoomComparison} horizontal={shouldZoomComparison ? false : true} />
+                            {shouldZoomComparison ? (
+                                <>
+                                    <XAxis
+                                        {...commonAxisProps}
+                                        type="number"
+                                        domain={comparisonDomain}
+                                        tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)}
+                                    />
+                                    <YAxis
+                                        {...commonAxisProps}
+                                        type="category"
+                                        width={72}
+                                        dataKey={renderConfig.xAxis}
+                                        tickFormatter={(v) => {
+                                            const label = String(v);
+                                            return label.length > 12 ? `${label.slice(0, 12)}…` : label;
+                                        }}
+                                    />
+                                </>
+                            ) : (
+                                <>
+                                    <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis}
+                                        angle={chartData.length > 6 ? -35 : 0}
+                                        textAnchor={chartData.length > 6 ? "end" : "middle"}
+                                        interval={0}
+                                        tickFormatter={(v) => {
+                                            const s = String(v);
+                                            return chartData.length > 8 ? s.slice(0, 10) : s;
+                                        }} />
+                                    <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
+                                </>
+                            )}
                             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(139,92,246,0.03)', rx: 8 }} />
-                            <Legend content={renderLegend} />
-                            <Bar dataKey={renderConfig.yAxis} radius={[4, 4, 0, 0]} animationDuration={1500} maxBarSize={32}>
+                            <Bar
+                                dataKey={renderConfig.yAxis}
+                                radius={shouldZoomComparison ? [0, 4, 4, 0] : [4, 4, 0, 0]}
+                                animationDuration={1500}
+                                maxBarSize={shouldZoomComparison ? 22 : 32}
+                            >
                                 {chartData.map((e, idx) => {
                                     const val = coerceNumber(e[renderConfig.yAxis]);
                                     return <Cell key={idx} fill={val !== null && val < 0 ? "#f43f5e" : COLORS[idx % COLORS.length]} fillOpacity={0.8} />;
                                 })}
+                                {chartData.length <= 10 && (
+                                    <LabelList
+                                        dataKey={renderConfig.yAxis}
+                                        position={shouldZoomComparison ? "right" : "top"}
+                                        formatter={(value: ChartRow[string]) => formatValue(value, renderConfig.yAxis, true)}
+                                        fill="#c4b5fd"
+                                        fontSize={10}
+                                        fontWeight={700}
+                                    />
+                                )}
                             </Bar>
                         </BarChart>
                     </ResponsiveContainer>
@@ -385,28 +550,75 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
                         <PieChart>
                             <Tooltip content={<CustomTooltip />} />
                             <Legend content={renderLegend} />
-                            <Pie data={numericData} cx="50%" cy="45%" labelLine={false} outerRadius="85%" innerRadius="65%" paddingAngle={5} stroke="none"
+                            <Pie
+                                data={chartData}
+                                cx="50%"
+                                cy="45%"
+                                labelLine={false}
+                                label={({ percent }: PieLabelProps) => (percent && percent >= 0.08 ? `${(percent * 100).toFixed(1)}%` : "")}
+                                outerRadius="85%"
+                                innerRadius="65%"
+                                paddingAngle={5}
+                                stroke="none"
                                 dataKey={renderConfig.yAxis} nameKey={renderConfig.xAxis} animationDuration={1500}>
-                                {numericData.map((_, idx) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} fillOpacity={0.85} className="outline-none" />)}
+                                {chartData.map((_, idx) => <Cell key={idx} fill={COLORS[idx % COLORS.length]} fillOpacity={0.85} className="outline-none" />)}
                             </Pie>
                         </PieChart>
                     </ResponsiveContainer>
                 );
+            case 'scatter': {
+                const scatterData = coerceChartValues(data, [renderConfig.xAxis, renderConfig.yAxis]).filter((row) => (
+                    coerceNumber(row[renderConfig.xAxis]) !== null && coerceNumber(row[renderConfig.yAxis]) !== null
+                ));
+                return (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ScatterChart margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                            <XAxis {...commonAxisProps} type="number" dataKey={renderConfig.xAxis} name={renderConfig.xAxis}
+                                tickFormatter={(v) => formatValue(v, renderConfig.xAxis, true)} />
+                            <YAxis {...commonAxisProps} type="number" dataKey={renderConfig.yAxis} name={renderConfig.yAxis}
+                                tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
+                            <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: "3 3" }} />
+                            <Scatter name={`${formatKeyLabel(renderConfig.yAxis)} vs ${formatKeyLabel(renderConfig.xAxis)}`} data={scatterData} fill={primaryColor} />
+                        </ScatterChart>
+                    </ResponsiveContainer>
+                );
+            }
             case 'treemap':
                 return (
                     <ResponsiveContainer width="100%" height="100%">
                         <Treemap data={chartData.map((r, i) => ({ name: String(r[renderConfig.xAxis] || "Unknown"), size: numericData[i]?.[renderConfig.yAxis] || 0 }))}
                             dataKey="size" stroke="#04030a" fill={primaryColor} aspectRatio={4/3}
-                            content={({ x, y, width, height, index, name, value }: any) => (
-                                <g>
-                                    <rect x={x} y={y} width={width} height={height} fill={COLORS[index % COLORS.length]} fillOpacity={0.8} stroke="#04030a" />
-                                    {width > 60 && height > 30 && (
-                                        <text x={x + 6} y={y + 18} fill="white" fontSize={11} fontWeight={700} className="uppercase tracking-wider">
-                                            {String(name).slice(0, 12)}
-                                        </text>
-                                    )}
-                                </g>
-                            )} />
+                            content={renderTreemapNode} />
+                    </ResponsiveContainer>
+                );
+            case 'radar':
+                return (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
+                            <PolarGrid stroke="rgba(139,92,246,0.1)" />
+                            <PolarAngleAxis dataKey={renderConfig.xAxis} stroke="#7c6fa0" fontSize={10} fontWeight={700} />
+                            <PolarRadiusAxis angle={30} domain={[0, 'auto']} stroke="#4d4270" fontSize={8} />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Radar name={renderConfig.yAxis} dataKey={renderConfig.yAxis} stroke={primaryColor} fill={primaryColor} fillOpacity={0.4} />
+                            <Legend content={renderLegend} />
+                        </RadarChart>
+                    </ResponsiveContainer>
+                );
+            case 'composed':
+                return (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                            <XAxis {...commonAxisProps} dataKey={renderConfig.xAxis} />
+                            <YAxis {...commonAxisProps} tickFormatter={(v) => formatValue(v, renderConfig.yAxis, true)} />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Legend content={renderLegend} />
+                            <Bar dataKey={renderConfig.yAxis} fill={primaryColor} fillOpacity={0.7} radius={[4, 4, 0, 0]} />
+                            {seriesKeys.length > 1 && (
+                                <Line type="monotone" dataKey={seriesKeys[1]} stroke={COLORS[1]} strokeWidth={2.5} dot={{ r: 4 }} />
+                            )}
+                        </ComposedChart>
                     </ResponsiveContainer>
                 );
             default:
@@ -429,5 +641,16 @@ export default function DashboardRenderer({ data, config }: { data: ChartRow[], 
         }
     };
 
-    return <div className="h-full w-full">{renderChart()}</div>;
+    return (
+        <div className="flex h-full w-full flex-col">
+            {comparisonNote && (
+                <div className="mb-4 inline-flex w-fit items-center rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200">
+                    {comparisonNote}
+                </div>
+            )}
+            <div className="min-h-0 flex-1">
+                {renderChart()}
+            </div>
+        </div>
+    );
 }

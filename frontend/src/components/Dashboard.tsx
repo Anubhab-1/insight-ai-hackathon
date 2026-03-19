@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useEffectEvent, useState } from "react";
+import Image from "next/image";
 import {
     CheckCircle2,
     ChevronLeft,
-    Circle,
     Database,
     History,
     Loader2,
@@ -24,7 +24,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import UploadOverlay from "./UploadOverlay";
 import ExecutiveLanding from "./ExecutiveLanding";
 import ExecutiveDashboardView from "./ExecutiveDashboardView";
-import { DatasetHealth, InsightCard, QueryResponse, UploadResponse } from "@/types";
+import { DatasetHealth, DatasetRecord, InsightCard, QueryResponse, UploadResponse } from "@/types";
 import { buildApiUrl } from "@/lib/api";
 
 const PLACEHOLDERS = [
@@ -39,12 +39,63 @@ const DEFAULT_PROMPTS = [
     { label: "Step 3: Comparison", prompt: "Compare North America vs Latin America watch time and call out the primary shifting metrics." },
 ];
 
+const THINKING_STAGES = [
+    "Analyzing dataset schema...",
+    "Writing SQL query...",
+    "Executing against database...",
+    "Validating results...",
+    "Rendering charts...",
+];
+
+type ConversationMessage = {
+    role: "user" | "assistant";
+    content: string;
+};
+
+interface SpeechRecognitionAlternativeLike {
+    transcript: string;
+}
+
+interface SpeechRecognitionResultLike {
+    0: SpeechRecognitionAlternativeLike;
+}
+
+interface SpeechRecognitionResultListLike {
+    [index: number]: SpeechRecognitionResultLike;
+}
+
+interface SpeechRecognitionEventLike {
+    resultIndex: number;
+    results: SpeechRecognitionResultListLike;
+}
+
+interface SpeechRecognitionLike {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+    onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+    onerror: (() => void) | null;
+    onend: (() => void) | null;
+    start: () => void;
+}
+
+interface SpeechRecognitionConstructor {
+    new (): SpeechRecognitionLike;
+}
+
+type SpeechWindow = Window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
 interface DatasetState {
     name: string;
     rows: number;
     columns: string[];
     schema: string;
     examplePrompts: string[];
+    sampleData: DatasetRecord[];
+    llmAvailable: boolean;
 }
 
 interface HistoryEntry {
@@ -60,6 +111,8 @@ function toDatasetState(payload: DatasetHealth | UploadResponse): DatasetState {
         columns: Array.isArray(payload.columns) ? payload.columns : [],
         schema: payload.schema || "Schema unavailable.",
         examplePrompts: Array.isArray(payload.example_prompts) ? payload.example_prompts : [],
+        sampleData: Array.isArray(payload.sample_data) ? payload.sample_data : [],
+        llmAvailable: Boolean(payload.llm_client),
     };
 }
 
@@ -68,8 +121,33 @@ function safeJsonParse<T>(text: string, context: string): T | null {
     catch (e) { console.error(`${context} parse failed:`, e); return null; }
 }
 
+function getColumnBadgeMeta(column: string) {
+    if (/(date|time|month|year|published|created)/i.test(column)) {
+        return {
+            icon: Calendar,
+            background: "rgba(6,182,212,0.15)",
+            border: "rgba(6,182,212,0.2)",
+        };
+    }
+
+    if (/(revenue|count|score|rate|views|likes|shares|amount|sales|profit|duration|hours|seconds|usd|gained)/i.test(column)) {
+        return {
+            icon: Hash,
+            background: "rgba(16,185,129,0.15)",
+            border: "rgba(16,185,129,0.2)",
+        };
+    }
+
+    return {
+        icon: Tag,
+        background: "rgba(139,92,246,0.1)",
+        border: "rgba(139,92,246,0.15)",
+    };
+}
+
 export default function Dashboard() {
     const [needsUpload, setNeedsUpload] = useState(true);
+    const [checkingDataset, setCheckingDataset] = useState(true);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [placeholderIdx, setPlaceholderIdx] = useState(0);
@@ -82,14 +160,11 @@ export default function Dashboard() {
     const [openSqlWidgetId, setOpenSqlWidgetId] = useState<string | null>(null);
     const [thinkingStage, setThinkingStage] = useState(0);
     const [isListening, setIsListening] = useState(false);
+    const [isClient, setIsClient] = useState(false);
 
-    const THINKING_STAGES = [
-        "Analyzing dataset schema...",
-        "Writing SQL query...",
-        "Executing against database...",
-        "Agentic self-healing...",
-        "Rendering charts...",
-    ];
+    useEffect(() => {
+        setIsClient(true);
+    }, []);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -98,17 +173,41 @@ export default function Dashboard() {
         return () => clearInterval(interval);
     }, []);
 
-    async function loadDataset() {
+    const loadDataset = useEffectEvent(async () => {
         try {
             const res = await fetch(buildApiUrl("/api/health"));
             const text = await res.text();
-            if (!res.ok) return setActiveDataset(null);
+            if (!res.ok) {
+                setNeedsUpload(true);
+                setActiveDataset(null);
+                setInsights([]);
+                return;
+            }
             const data = safeJsonParse<DatasetHealth>(text, "Health");
-            if (!data || !data.has_data) return setActiveDataset(null);
+            if (!data || !data.has_data) {
+                setNeedsUpload(true);
+                setActiveDataset(null);
+                setInsights([]);
+                return;
+            }
+
+            const dataset = toDatasetState(data);
             setNeedsUpload(false);
-            setActiveDataset(toDatasetState(data));
-        } catch (e) { setActiveDataset(null); }
-    }
+            setActiveDataset(dataset);
+
+            if (dataset.llmAvailable) {
+                void fetchInsights();
+            } else {
+                setInsights([]);
+            }
+        } catch {
+            setNeedsUpload(true);
+            setActiveDataset(null);
+            setInsights([]);
+        } finally {
+            setCheckingDataset(false);
+        }
+    });
 
     async function fetchInsights() {
         try {
@@ -116,21 +215,25 @@ export default function Dashboard() {
             const res = await fetch(buildApiUrl("/api/insights"));
             const data = await res.json();
             setInsights(data?.insights || []);
-        } catch (e) { setInsights([]); }
+        } catch { setInsights([]); }
         finally { setLoadingInsights(false); }
     }
 
-    function buildConversationHistory() {
-        return history.filter(h => h.response || h.error).flatMap(h => {
-            const m = [{ role: "user", content: h.query }];
-            if (h.response) m.push({ role: "assistant", content: `Title: ${h.response.dashboard_title}. Summary: ${h.response.executive_summary}.` });
-            else if (h.error) m.push({ role: "assistant", content: `Error: ${h.error}` });
-            return m;
+    useEffect(() => {
+        void loadDataset();
+    }, []);
+
+    function buildConversationHistory(): ConversationMessage[] {
+        return history.filter(h => h.response || h.error).flatMap((h): ConversationMessage[] => {
+            const messages: ConversationMessage[] = [{ role: "user", content: h.query }];
+            if (h.response) messages.push({ role: "assistant", content: `Title: ${h.response.dashboard_title}. Summary: ${h.response.executive_summary}.` });
+            else if (h.error) messages.push({ role: "assistant", content: `Error: ${h.error}` });
+            return messages;
         }).slice(-6);
     }
 
     useEffect(() => {
-        let timer: any;
+        let timer: ReturnType<typeof setTimeout> | undefined;
         if (loadingQuery) {
             setThinkingStage(0);
             const cycle = () => {
@@ -148,12 +251,13 @@ export default function Dashboard() {
     }, [loadingQuery]);
 
     const startListening = () => {
-        const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        const speechWindow = window as SpeechWindow;
+        const SR = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
         if (!SR) return alert("Speech Recognition not supported");
         const rec = new SR();
         rec.continuous = false; rec.interimResults = true; rec.lang = "en-US";
         setIsListening(true);
-        rec.onresult = (e: any) => setQuery(e.results[e.resultIndex][0].transcript);
+        rec.onresult = (event) => setQuery(event.results[event.resultIndex][0].transcript);
         rec.onerror = () => setIsListening(false);
         rec.onend = () => { setIsListening(false); setTimeout(() => document.getElementById("hidden-submit-btn")?.click(), 400); };
         rec.start();
@@ -181,13 +285,34 @@ export default function Dashboard() {
     }
 
     function handleUploadSuccess(data: UploadResponse) {
-        setNeedsUpload(false); setActiveDataset(toDatasetState(data));
+        const dataset = toDatasetState(data);
+        setNeedsUpload(false); setActiveDataset(dataset);
         setQuery(""); setHistory([]); setActiveViewIndex(null);
-        setOpenSqlWidgetId(null); setInsights([]); void fetchInsights();
+        setOpenSqlWidgetId(null);
+        if (dataset.llmAvailable) void fetchInsights();
+        else setInsights([]);
     }
 
     const activeItem = activeViewIndex !== null ? history[activeViewIndex] : null;
-    const isShowingRawDataset = activeDataset && history.length === 0;
+    const isShowingRawDataset = Boolean(activeDataset && history.length === 0);
+    const previewColumns = Object.keys(activeDataset?.sampleData[0] || {});
+
+    if (!isClient || checkingDataset) {
+        return (
+            <div className="nv-bg flex min-h-screen items-center justify-center px-6">
+                <div className="nv-card flex max-w-md items-center gap-5 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-violet-500/40 to-transparent animate-scanline" />
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-violet-500/20 bg-violet-500/10 shadow-[0_0_20px_rgba(139,92,246,0.1)]">
+                        <Loader2 className="h-6 w-6 animate-spin text-violet-300" />
+                    </div>
+                    <div>
+                        <p className="text-base font-bold text-white tracking-tight">Initializing Workspace</p>
+                        <p className="mt-1 text-xs text-slate-400 leading-relaxed">Securing your neural connection and restoring the latest data insights.</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="nv-bg min-h-screen">
@@ -217,14 +342,19 @@ export default function Dashboard() {
                     <div className="relative z-10 flex h-full flex-col">
                         {/* Sidebar Header */}
                         <div className="px-6 py-6" style={{ borderBottom: "1px solid rgba(139,92,246,0.08)" }}>
-                            <div className="flex items-center gap-3">
-                                <div className="nv-glow flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600/20 border border-violet-500/30 overflow-hidden p-1.5">
-                                    <img src="/images/lumina_logo.png" alt="Logo" className="w-full h-full object-contain" />
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="nv-glow flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600/20 border border-violet-500/30 overflow-hidden p-1.5">
+                                        <Image src="/images/lumina_logo.png" alt="Lumina logo" width={28} height={28} className="h-full w-full object-contain" />
+                                    </div>
+                                    <div>
+                                        <p className="text-lg font-bold tracking-tight text-white">Lumina</p>
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#7c6fa0" }}>Executive Console</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-lg font-bold tracking-tight text-white">Lumina</p>
-                                    <p className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#7c6fa0" }}>Neural Engine</p>
-                                </div>
+                                <button onClick={() => setSidebarOpen(false)} className="rounded-xl border p-2 md:hidden" style={{ borderColor: "rgba(139,92,246,0.2)" }}>
+                                    <ChevronLeft className="h-4 w-4 text-violet-300" />
+                                </button>
                             </div>
                         </div>
 
@@ -253,15 +383,16 @@ export default function Dashboard() {
                                             <p className="text-[9px] uppercase tracking-widest text-slate-600">Schema</p>
                                             <div className="flex flex-wrap gap-1">
                                                 {activeDataset.columns.slice(0, 16).map(col => {
-                                                    const isDate = /(date|time|month|year|published|created)/i.test(col);
-                                                    const isNum = /(revenue|count|score|rate|views|likes|shares|amount|sales|profit|duration|hours|seconds|usd|gained)/i.test(col);
-                                                    const icon = isDate ? '📅' : isNum ? '🔢' : '🏷️';
-                                                    const color = isDate ? 'rgba(6,182,212,0.15)' : isNum ? 'rgba(16,185,129,0.15)' : 'rgba(139,92,246,0.1)';
-                                                    const border = isDate ? 'rgba(6,182,212,0.2)' : isNum ? 'rgba(16,185,129,0.2)' : 'rgba(139,92,246,0.15)';
+                                                    const badge = getColumnBadgeMeta(col);
+                                                    const Icon = badge.icon;
+                                                    const background = badge.background;
+                                                    const border = badge.border;
+                                                    const label = col.replace(/_/g, " ");
                                                     return (
                                                         <span key={col} className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium text-white/70"
-                                                            style={{ background: color, border: `1px solid ${border}` }}>
-                                                            {icon} {col.replace(/_/g, ' ')}
+                                                            style={{ background, border: `1px solid ${border}` }}>
+                                                            <Icon className="h-3 w-3" />
+                                                            {label}
                                                         </span>
                                                     );
                                                 })}
@@ -280,7 +411,9 @@ export default function Dashboard() {
 
                             {/* Query History */}
                             <div className="space-y-4">
-                                <p className="px-1 text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#7c6fa0" }}>Neural History</p>
+                                <p className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: "#7c6fa0" }}>
+                                    <History className="h-3.5 w-3.5" /> Query History
+                                </p>
                                 <div className="space-y-2">
                                     {history.length === 0 ? (
                                         <div className="rounded-2xl border border-dashed p-4 text-center text-xs" style={{ borderColor: "rgba(139,92,246,0.1)", color: "#4d4270" }}>
@@ -292,7 +425,7 @@ export default function Dashboard() {
                                                 className={`w-full text-left p-3.5 rounded-2xl border transition-all duration-300 ${activeViewIndex === i ? "border-violet-500/40 bg-violet-500/10 shadow-lg" : "border-violet-500/5 bg-white/2 hover:border-violet-500/20"}`}>
                                                 <p className="text-xs font-semibold text-white/90 line-clamp-1">{h.query}</p>
                                                 <p className="mt-1 text-[9px] uppercase tracking-widest" style={{ color: activeViewIndex === i ? "#c4b5fd" : "#4d4270" }}>
-                                                    {h.response ? "Synthesis Complete" : h.error ? "Neural Fault" : "Processing"}
+                                                    {h.response ? "Ready" : h.error ? "Request Failed" : "Processing"}
                                                 </p>
                                             </button>
                                         ))
@@ -306,7 +439,7 @@ export default function Dashboard() {
                             <button onClick={() => setNeedsUpload(true)}
                                 className="liquid-btn group flex w-full items-center justify-center gap-2.5 rounded-2xl p-3 text-xs font-bold text-white transition-all hover:shadow-[0_0_20px_rgba(139,92,246,0.2)]"
                                 style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)" }}>
-                                <Database className="h-4 w-4 text-violet-400 group-hover:scale-110 transition-transform" />
+                                <RefreshCw className="h-4 w-4 text-violet-400 group-hover:scale-110 transition-transform" />
                                 Re-sync Dataset
                             </button>
                         </div>
@@ -328,7 +461,7 @@ export default function Dashboard() {
                                     <Search className="h-5 w-5 text-violet-500/60 group-focus-within:text-violet-400 transition-colors" />
                                 </div>
                                 <input type="text" value={query} onChange={e => setQuery(e.target.value)}
-                                    placeholder={isListening ? "Neural listening in progress..." : PLACEHOLDERS[placeholderIdx]}
+                                    placeholder={isListening ? "Listening..." : PLACEHOLDERS[placeholderIdx]}
                                     disabled={loadingQuery || needsUpload || isListening}
                                     className="h-14 w-full rounded-2xl border bg-surface/50 pl-14 pr-32 text-sm text-white shadow-2xl backdrop-blur-xl outline-none transition-all placeholder:text-slate-600 focus:border-violet-500/50 focus:shadow-[0_0_40px_rgba(139,92,246,0.15)] disabled:opacity-50"
                                     style={{ borderColor: "rgba(139,92,246,0.12)" }} />
@@ -355,14 +488,15 @@ export default function Dashboard() {
                             )}
                         </div>
 
-                        {/* Example prompt chips — shown only before first query */}
+                        {/* Example prompt chips shown only before the first query */}
                         {activeDataset && history.length === 0 && activeDataset.examplePrompts.length > 0 && (
                             <div className="mx-auto mt-3 flex w-full max-w-6xl flex-wrap gap-2 px-0">
                                 {activeDataset.examplePrompts.map((p, i) => (
                                     <button key={i} onClick={() => void submitQuery(p)}
-                                        className="rounded-full px-4 py-1.5 text-[11px] font-semibold transition-all hover:scale-105"
+                                        className="flex items-center gap-2 rounded-full px-4 py-1.5 text-[11px] font-semibold transition-all hover:scale-105"
                                         style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.18)', color: '#c4b5fd' }}>
-                                        ✦ {p}
+                                        <Sparkles className="h-3 w-3" />
+                                        {p}
                                     </button>
                                 ))}
                             </div>
@@ -374,25 +508,47 @@ export default function Dashboard() {
                         <AnimatePresence mode="wait">
                             {loadingQuery && !activeItem?.response ? (
                                 <motion.div key="thinking" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-                                    className="flex h-[60vh] flex-col items-center justify-center gap-8">
+                                    className="flex h-[60vh] flex-col items-center justify-center gap-10">
                                     
-                                    {/* Neural pulse loading animation */}
-                                    <div className="relative h-32 w-32 flex items-center justify-center">
-                                        <div className="absolute inset-0 rounded-full border border-violet-500/40" style={{ animation: "neural-pulse 2s ease-out infinite" }} />
-                                        <div className="absolute inset-4 rounded-full border border-cyan-500/30" style={{ animation: "neural-pulse 2s ease-out infinite 0.5s" }} />
-                                        <div className="absolute inset-8 rounded-full border border-fuchsia-500/20" style={{ animation: "neural-pulse 2s ease-out infinite 1s" }} />
-                                        <div className="relative z-10 flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-600 shadow-[0_0_40px_rgba(139,92,246,0.6)]">
-                                            <Zap className="h-6 w-6 text-white animate-pulse" />
+                                    {/* Neural Pulse loading animation */}
+                                    <div className="relative h-48 w-48 flex items-center justify-center">
+                                        <motion.div animate={{ scale: [1, 1.5, 1], opacity: [0.3, 0.1, 0.3] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                                            className="absolute inset-0 rounded-full bg-violet-500/10 blur-3xl" />
+                                        
+                                        <div className="absolute inset-0 rounded-full border border-violet-500/30" style={{ animation: "pulse-ring 2.5s ease-out infinite" }} />
+                                        <div className="absolute inset-6 rounded-full border border-cyan-500/20" style={{ animation: "pulse-ring 2.5s ease-out infinite 0.6s" }} />
+                                        <div className="absolute inset-12 rounded-full border border-fuchsia-500/15" style={{ animation: "pulse-ring 2.5s ease-out infinite 1.2s" }} />
+                                        
+                                        <motion.div animate={{ rotate: 360 }} transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                                            className="absolute inset-0 rounded-full border-2 border-dashed border-violet-500/20" />
+
+                                        <div className="relative z-10 flex h-16 w-16 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-violet-600 to-fuchsia-600 shadow-[0_0_50px_rgba(139,92,246,0.6)]">
+                                            <Zap className="h-8 w-8 text-white animate-pulse" />
                                         </div>
                                     </div>
 
-                                    <div className="w-full max-w-sm space-y-4">
-                                        <h3 className="nv-gradient-text text-center text-xl font-bold">Lumina is thinking...</h3>
-                                        <div className="space-y-4 rounded-2xl border p-6 bg-surface/40 backdrop-blur-xl" style={{ borderColor: "rgba(139,92,246,0.15)" }}>
+                                    <div className="w-full max-w-sm space-y-6">
+                                        <div className="space-y-2 text-center">
+                                            <h3 className="nv-gradient-text text-2xl font-black tracking-tight">Synthesizing Intel</h3>
+                                            <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-violet-400/50">Processing your inquiry across the dataset</p>
+                                        </div>
+                                        <div className="space-y-5 rounded-[2rem] border p-8 nv-card-premium shadow-2xl relative overflow-hidden" style={{ borderColor: "rgba(139,92,246,0.15)" }}>
+                                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-400/30 to-transparent animate-scanline" />
                                             {THINKING_STAGES.map((s, i) => (
-                                                <div key={s} className={`flex items-center gap-3 transition-all duration-500 ${i === thinkingStage ? "text-white scale-105" : i < thinkingStage ? "text-violet-400/60" : "text-slate-800"}`}>
-                                                    {i < thinkingStage ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : i === thinkingStage ? <Loader2 className="h-4 w-4 animate-spin text-violet-400" /> : <div className="h-2 w-2 rounded-full bg-slate-800" />}
-                                                    <span className="text-sm font-medium">{s}</span>
+                                                <div key={s} className={`flex items-center gap-4 transition-all duration-500 ${i === thinkingStage ? "text-white scale-105 translate-x-2" : i < thinkingStage ? "text-violet-400/40" : "text-slate-800"}`}>
+                                                    <div className="relative flex h-5 w-5 items-center justify-center">
+                                                        {i < thinkingStage ? (
+                                                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                                                        ) : i === thinkingStage ? (
+                                                            <>
+                                                                <div className="absolute inset-0 animate-ping rounded-full bg-violet-500/20" />
+                                                                <Loader2 className="h-4 w-4 animate-spin text-violet-400" />
+                                                            </>
+                                                        ) : (
+                                                            <div className="h-1.5 w-1.5 rounded-full bg-slate-800" />
+                                                        )}
+                                                    </div>
+                                                    <span className="text-sm font-bold tracking-wide">{s}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -402,26 +558,114 @@ export default function Dashboard() {
                                 <ExecutiveDashboardView key={activeItem.query} item={activeItem} openSqlWidgetId={openSqlWidgetId}
                                     onToggleSql={id => setOpenSqlWidgetId(c => c === id ? null : id)}
                                     onRunPrompt={p => void submitQuery(p)} />
-                            ) : isShowingRawDataset ? (
-                                <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-                                    className="nv-card rounded-[2.5rem] p-10 shadow-2xl text-center">
-                                    <div className="nv-glow mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-500/10 border border-emerald-500/25">
-                                        <Database className="h-10 w-10 text-emerald-400" />
+                            ) : isShowingRawDataset && activeDataset ? (
+                                <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+                                    <div className="nv-card rounded-[2.5rem] p-10 shadow-2xl text-center">
+                                        <div className="nv-glow mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-3xl bg-emerald-500/10 border border-emerald-500/25">
+                                            <Database className="h-10 w-10 text-emerald-400" />
+                                        </div>
+                                        <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                                            Dataset Ready.
+                                        </h1>
+                                        <p className="mx-auto mt-4 max-w-xl text-slate-400">
+                                            Your dataset <span className="text-violet-300 font-semibold">{activeDataset.name}</span> is indexed.
+                                            Ask a business question above to generate your first executive briefing.
+                                        </p>
+                                        <div className="mt-6 flex flex-wrap justify-center gap-3">
+                                            <span className={`rounded-full px-4 py-2 text-[11px] font-bold uppercase tracking-widest ${activeDataset.llmAvailable ? "nv-pill-emerald" : "nv-pill-cyan"}`}>
+                                                {activeDataset.llmAvailable ? "LLM connected" : "Local fallback ready"}
+                                            </span>
+                                            <span className="rounded-full border px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-slate-300"
+                                                style={{ borderColor: "rgba(139,92,246,0.15)", background: "rgba(139,92,246,0.04)" }}>
+                                                {activeDataset.rows.toLocaleString()} rows · {activeDataset.columns.length} columns
+                                            </span>
+                                        </div>
+                                        <div className="mt-10 flex flex-wrap justify-center gap-4">
+                                            {activeDataset.examplePrompts.map((p) => (
+                                                <button key={p} onClick={() => void submitQuery(p)}
+                                                    className="nv-pill flex items-center gap-2 rounded-full px-5 py-2.5 text-xs font-semibold transition-all hover:bg-violet-500/20">
+                                                    <Sparkles className="h-3.5 w-3.5" />
+                                                    {p}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
-                                    <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                                        Neural Link Established.
-                                    </h1>
-                                    <p className="mx-auto mt-4 max-w-xl text-slate-400">
-                                        Your dataset <span className="text-violet-300 font-semibold">{activeDataset.name}</span> is indexed. 
-                                        Ask a business question in the console above to generate your first executive synthesis.
-                                    </p>
-                                    <div className="mt-10 flex flex-wrap justify-center gap-4">
-                                        {activeDataset.examplePrompts.map(p => (
-                                            <button key={p} onClick={() => void submitQuery(p)}
-                                                className="nv-pill rounded-full px-5 py-2.5 text-xs font-semibold hover:bg-violet-500/20 transition-all">
-                                                {p}
-                                            </button>
-                                        ))}
+
+                                    <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                                        <section className="nv-card rounded-[2rem] p-6 sm:p-8">
+                                            <div className="mb-5 flex items-center gap-3">
+                                                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-violet-500/20 bg-violet-500/10">
+                                                    <Hash className="h-5 w-5 text-violet-300" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold uppercase tracking-[0.22em]" style={{ color: "#7c6fa0" }}>Schema Snapshot</p>
+                                                    <h2 className="text-xl font-semibold text-white">Column Inventory</h2>
+                                                </div>
+                                            </div>
+                                            <p className="rounded-2xl border px-4 py-3 text-xs leading-relaxed text-slate-400"
+                                                style={{ borderColor: "rgba(139,92,246,0.1)", background: "rgba(139,92,246,0.03)" }}>
+                                                {activeDataset.schema}
+                                            </p>
+                                            <div className="mt-5 flex flex-wrap gap-2">
+                                                {activeDataset.columns.map((column) => {
+                                                    const badge = getColumnBadgeMeta(column);
+                                                    const Icon = badge.icon;
+                                                    return (
+                                                        <span key={column} className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-white/80"
+                                                            style={{ background: badge.background, border: `1px solid ${badge.border}` }}>
+                                                            <Icon className="h-3.5 w-3.5" />
+                                                            {column.replace(/_/g, " ")}
+                                                        </span>
+                                                    );
+                                                })}
+                                            </div>
+                                        </section>
+
+                                        <section className="nv-card rounded-[2rem] p-6 sm:p-8">
+                                            <div className="mb-5 flex items-center gap-3">
+                                                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-500/20 bg-cyan-500/10">
+                                                    <Database className="h-5 w-5 text-cyan-300" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold uppercase tracking-[0.22em]" style={{ color: "#7c6fa0" }}>Sample Preview</p>
+                                                    <h2 className="text-xl font-semibold text-white">First Rows</h2>
+                                                </div>
+                                            </div>
+
+                                            {activeDataset.sampleData.length > 0 ? (
+                                                <div className="overflow-hidden rounded-2xl border border-violet-500/10 bg-[#05040d]">
+                                                    <div className="overflow-x-auto">
+                                                        <table className="min-w-full text-left text-xs text-slate-300">
+                                                            <thead className="bg-violet-500/5 text-[10px] font-bold uppercase tracking-[0.18em] text-violet-300">
+                                                                <tr>
+                                                                    {previewColumns.map((column) => (
+                                                                        <th key={column} className="px-4 py-3 font-bold">
+                                                                            {column.replace(/_/g, " ")}
+                                                                        </th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-violet-500/5">
+                                                                {activeDataset.sampleData.map((row, rowIndex) => (
+                                                                    <tr key={`sample-row-${rowIndex}`} className="hover:bg-violet-500/5">
+                                                                        {previewColumns.map((column) => (
+                                                                            <td key={`${rowIndex}-${column}`} className="px-4 py-3 align-top text-white/85">
+                                                                                {row[column] === null || row[column] === undefined || row[column] === "" ? "-" : String(row[column])}
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-2xl border border-dashed px-5 py-8 text-center text-sm text-slate-500"
+                                                    style={{ borderColor: "rgba(139,92,246,0.15)", background: "rgba(139,92,246,0.02)" }}>
+                                                    Sample rows will appear here after upload.
+                                                </div>
+                                            )}
+                                        </section>
                                     </div>
                                 </motion.section>
                             ) : (
@@ -435,3 +679,4 @@ export default function Dashboard() {
         </div>
     );
 }
+
