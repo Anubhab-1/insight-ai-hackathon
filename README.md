@@ -1,6 +1,6 @@
-# 🌌 Nova Analytics: The Executive Decision Engine
+# 🌌 Lumina: The Executive Decision Engine
 
-**Nova Analytics** (formerly Lumina) is a high-performance, AI-driven BI platform built to turn raw CSV data into executive-ready dashboards in seconds. It combines sophisticated data planning, self-healing SQL generation, and a premium "Neural Void" design language to deliver insights that go beyond simple charts.
+**Lumina** is a high-performance, AI-driven BI platform built to turn raw CSV data into executive-ready dashboards in seconds. It combines sophisticated data planning, self-healing SQL generation, and a premium "Neural Void" design language to deliver insights that go beyond simple charts.
 
 ---
 
